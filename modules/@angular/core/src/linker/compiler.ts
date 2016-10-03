@@ -6,14 +6,15 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {Injector} from '../di';
-import {BaseException} from '../facade/exceptions';
-import {ConcreteType, Type, stringify} from '../facade/lang';
+import {OpaqueToken} from '../di';
+import {BaseError} from '../facade/errors';
+import {stringify} from '../facade/lang';
 import {ViewEncapsulation} from '../metadata';
-import {AppModuleMetadata} from '../metadata/app_module';
+import {Type} from '../type';
 
-import {AppModuleFactory} from './app_module_factory';
 import {ComponentFactory} from './component_factory';
+import {NgModuleFactory} from './ng_module_factory';
+
 
 
 /**
@@ -21,71 +22,75 @@ import {ComponentFactory} from './component_factory';
  *
  * @stable
  */
-export class ComponentStillLoadingError extends BaseException {
-  constructor(public compType: Type) {
+export class ComponentStillLoadingError extends BaseError {
+  constructor(public compType: Type<any>) {
     super(`Can't compile synchronously as ${stringify(compType)} is still being loaded!`);
   }
 }
 
 /**
- * Low-level service for running the angular compiler duirng runtime
+ * Combination of NgModuleFactory and ComponentFactorys.
+ *
+ * @experimental
+ */
+export class ModuleWithComponentFactories<T> {
+  constructor(
+      public ngModuleFactory: NgModuleFactory<T>,
+      public componentFactories: ComponentFactory<any>[]) {}
+}
+
+
+function _throwError() {
+  throw new Error(`Runtime compiler is not loaded`);
+}
+
+/**
+ * Low-level service for running the angular compiler during runtime
  * to create {@link ComponentFactory}s, which
  * can later be used to create and render a Component instance.
  *
- * Each `@AppModule` provides an own `Compiler` to its injector,
- * that will use the directives/pipes of the app module for compilation
+ * Each `@NgModule` provides an own `Compiler` to its injector,
+ * that will use the directives/pipes of the ng module for compilation
  * of components.
  * @stable
  */
 export class Compiler {
   /**
-   * Returns the injector with which the compiler has been created.
+   * Compiles the given NgModule and all of its components. All templates of the components listed
+   * in `entryComponents`
+   * have to be inlined. Otherwise throws a {@link ComponentStillLoadingError}.
    */
-  get injector(): Injector {
-    throw new BaseException(`Runtime compiler is not loaded. Tried to read the injector.`);
+  compileModuleSync<T>(moduleType: Type<T>): NgModuleFactory<T> { throw _throwError(); }
+
+  /**
+   * Compiles the given NgModule and all of its components
+   */
+  compileModuleAsync<T>(moduleType: Type<T>): Promise<NgModuleFactory<T>> { throw _throwError(); }
+
+  /**
+   * Same as {@link compileModuleSync} but also creates ComponentFactories for all components.
+   */
+  compileModuleAndAllComponentsSync<T>(moduleType: Type<T>): ModuleWithComponentFactories<T> {
+    throw _throwError();
   }
 
   /**
-   * Loads the template and styles of a component and returns the associated `ComponentFactory`.
+   * Same as {@link compileModuleAsync} but also creates ComponentFactories for all components.
    */
-  compileComponentAsync<T>(component: ConcreteType<T>): Promise<ComponentFactory<T>> {
-    throw new BaseException(
-        `Runtime compiler is not loaded. Tried to compile ${stringify(component)}`);
-  }
-  /**
-   * Compiles the given component. All templates have to be either inline or compiled via
-   * `compileComponentAsync` before. Otherwise throws a {@link ComponentStillLoadingError}.
-   */
-  compileComponentSync<T>(component: ConcreteType<T>): ComponentFactory<T> {
-    throw new BaseException(
-        `Runtime compiler is not loaded. Tried to compile ${stringify(component)}`);
-  }
-  /**
-   * Compiles the given App Module. All templates of the components listed in `precompile`
-   * have to be either inline or compiled before via `compileComponentAsync` /
-   * `compileAppModuleAsync`. Otherwise throws a {@link ComponentStillLoadingError}.
-   */
-  compileAppModuleSync<T>(moduleType: ConcreteType<T>, metadata: AppModuleMetadata = null):
-      AppModuleFactory<T> {
-    throw new BaseException(
-        `Runtime compiler is not loaded. Tried to compile ${stringify(moduleType)}`);
-  }
-
-  compileAppModuleAsync<T>(moduleType: ConcreteType<T>, metadata: AppModuleMetadata = null):
-      Promise<AppModuleFactory<T>> {
-    throw new BaseException(
-        `Runtime compiler is not loaded. Tried to compile ${stringify(moduleType)}`);
+  compileModuleAndAllComponentsAsync<T>(moduleType: Type<T>):
+      Promise<ModuleWithComponentFactories<T>> {
+    throw _throwError();
   }
 
   /**
-   * Clears all caches
+   * Clears all caches.
    */
   clearCache(): void {}
 
   /**
-   * Clears the cache for the given component/appModule.
+   * Clears the cache for the given component/ngModule.
    */
-  clearCacheFor(type: Type) {}
+  clearCacheFor(type: Type<any>) {}
 }
 
 /**
@@ -98,8 +103,14 @@ export type CompilerOptions = {
   useJit?: boolean,
   defaultEncapsulation?: ViewEncapsulation,
   providers?: any[],
-  deprecatedAppProviders?: any[]
-}
+};
+
+/**
+ * Token to provide CompilerOptions in the platform injector.
+ *
+ * @experimental
+ */
+export const COMPILER_OPTIONS = new OpaqueToken('compilerOptions');
 
 /**
  * A factory for creating a Compiler
@@ -107,44 +118,5 @@ export type CompilerOptions = {
  * @experimental
  */
 export abstract class CompilerFactory {
-  static mergeOptions(defaultOptions: CompilerOptions = {}, newOptions: CompilerOptions = {}):
-      CompilerOptions {
-    return {
-      useDebug: _firstDefined(newOptions.useDebug, defaultOptions.useDebug),
-      useJit: _firstDefined(newOptions.useJit, defaultOptions.useJit),
-      defaultEncapsulation:
-          _firstDefined(newOptions.defaultEncapsulation, defaultOptions.defaultEncapsulation),
-      providers: _mergeArrays(defaultOptions.providers, newOptions.providers),
-      deprecatedAppProviders:
-          _mergeArrays(defaultOptions.deprecatedAppProviders, newOptions.deprecatedAppProviders)
-    };
-  }
-
-  withDefaults(options: CompilerOptions = {}): CompilerFactory {
-    return new _DefaultApplyingCompilerFactory(this, options);
-  }
-  abstract createCompiler(options?: CompilerOptions): Compiler;
-}
-
-class _DefaultApplyingCompilerFactory extends CompilerFactory {
-  constructor(private _delegate: CompilerFactory, private _options: CompilerOptions) { super(); }
-
-  createCompiler(options: CompilerOptions = {}): Compiler {
-    return this._delegate.createCompiler(CompilerFactory.mergeOptions(this._options, options));
-  }
-}
-
-function _firstDefined<T>(...args: T[]): T {
-  for (var i = 0; i < args.length; i++) {
-    if (args[i] !== undefined) {
-      return args[i];
-    }
-  }
-  return undefined;
-}
-
-function _mergeArrays(...parts: any[][]): any[] {
-  let result: any[] = [];
-  parts.forEach((part) => result.push.apply(result, part));
-  return result;
+  abstract createCompiler(options?: CompilerOptions[]): Compiler;
 }

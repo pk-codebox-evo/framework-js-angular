@@ -6,23 +6,25 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {ObservableWrapper} from '../facade/async';
+import {AnimationGroupPlayer} from '../animation/animation_group_player';
+import {AnimationPlayer} from '../animation/animation_player';
+import {queueAnimation} from '../animation/animation_queue';
+import {AnimationTransitionEvent} from '../animation/animation_transition_event';
+import {ViewAnimationMap} from '../animation/view_animation_map';
+import {ChangeDetectorRef, ChangeDetectorStatus} from '../change_detection/change_detection';
+import {Injector} from '../di/injector';
 import {ListWrapper} from '../facade/collection';
 import {isPresent} from '../facade/lang';
+import {WtfScopeFn, wtfCreateScope, wtfLeave} from '../profile/profile';
 import {RenderComponentType, RenderDebugInfo, Renderer} from '../render/api';
+
+import {DebugContext, StaticNodeDebugInfo} from './debug_context';
 import {AppElement} from './element';
+import {ElementInjector} from './element_injector';
+import {ExpressionChangedAfterItHasBeenCheckedError, ViewDestroyedError, ViewWrappedError} from './errors';
 import {ViewRef_} from './view_ref';
 import {ViewType} from './view_type';
 import {ViewUtils, ensureSlotCount, flattenNestedViewRenderNodes} from './view_utils';
-import {ChangeDetectorRef, ChangeDetectorStatus,} from '../change_detection/change_detection';
-import {wtfCreateScope, wtfLeave, WtfScopeFn} from '../profile/profile';
-import {ExpressionChangedAfterItHasBeenCheckedException, ViewDestroyedException, ViewWrappedException} from './exceptions';
-import {StaticNodeDebugInfo, DebugContext} from './debug_context';
-import {ElementInjector} from './element_injector';
-import {Injector} from '../di/injector';
-import {AnimationPlayer} from '../animation/animation_player';
-import {AnimationGroupPlayer} from '../animation/animation_group_player';
-import {ViewAnimationMap} from '../animation/view_animation_map';
 
 var _scope_check: WtfScopeFn = wtfCreateScope(`AppView#check(ascii id)`);
 
@@ -49,6 +51,8 @@ export abstract class AppView<T> {
   private _hasExternalHostElement: boolean;
 
   public animationPlayers = new ViewAnimationMap();
+
+  private _animationListeners = new Map<any, _AnimationOutputHandler[]>();
 
   public context: T;
 
@@ -77,17 +81,46 @@ export abstract class AppView<T> {
     }
   }
 
-  queueAnimation(element: any, animationName: string, player: AnimationPlayer): void {
+  queueAnimation(
+      element: any, animationName: string, player: AnimationPlayer, totalTime: number,
+      fromState: string, toState: string): void {
+    queueAnimation(player);
+    var event = new AnimationTransitionEvent(
+        {'fromState': fromState, 'toState': toState, 'totalTime': totalTime});
     this.animationPlayers.set(element, animationName, player);
-    player.onDone(() => { this.animationPlayers.remove(element, animationName); });
+
+    player.onDone(() => {
+      // TODO: make this into a datastructure for done|start
+      this.triggerAnimationOutput(element, animationName, 'done', event);
+      this.animationPlayers.remove(element, animationName);
+    });
+
+    player.onStart(() => { this.triggerAnimationOutput(element, animationName, 'start', event); });
   }
 
-  triggerQueuedAnimations() {
-    this.animationPlayers.getAllPlayers().forEach(player => {
-      if (!player.hasStarted()) {
-        player.play();
+  triggerAnimationOutput(
+      element: any, animationName: string, phase: string, event: AnimationTransitionEvent) {
+    var listeners = this._animationListeners.get(element);
+    if (isPresent(listeners) && listeners.length) {
+      for (let i = 0; i < listeners.length; i++) {
+        let listener = listeners[i];
+        // we check for both the name in addition to the phase in the event
+        // that there may be more than one @trigger on the same element
+        if (listener.eventName === animationName && listener.eventPhase === phase) {
+          listener.handler(event);
+          break;
+        }
       }
-    });
+    }
+  }
+
+  registerAnimationOutput(
+      element: any, eventName: string, eventPhase: string, eventHandler: Function): void {
+    var animations = this._animationListeners.get(element);
+    if (!isPresent(animations)) {
+      this._animationListeners.set(element, animations = []);
+    }
+    animations.push(new _AnimationOutputHandler(eventName, eventPhase, eventHandler));
   }
 
   create(context: T, givenProjectableNodes: Array<any|any[]>, rootSelectorOrNode: string|any):
@@ -196,7 +229,7 @@ export abstract class AppView<T> {
       this.disposables[i]();
     }
     for (var i = 0; i < this.subscriptions.length; i++) {
-      ObservableWrapper.dispose(this.subscriptions[i]);
+      this.subscriptions[i].unsubscribe();
     }
     this.destroyInternal();
     this.dirtyParentQueriesInternal();
@@ -288,6 +321,8 @@ export abstract class AppView<T> {
     }
   }
 
+  markContentChildAsMoved(renderAppElement: AppElement): void { this.dirtyParentQueriesInternal(); }
+
   addToContentChildren(renderAppElement: AppElement): void {
     renderAppElement.parentView.contentChildren.push(this);
     this.viewContainerElement = renderAppElement;
@@ -314,9 +349,9 @@ export abstract class AppView<T> {
     }
   }
 
-  eventHandler(cb: Function): Function { return cb; }
+  eventHandler<E, R>(cb: (event?: E) => R): (event?: E) => R { return cb; }
 
-  throwDestroyedError(details: string): void { throw new ViewDestroyedException(details); }
+  throwDestroyedError(details: string): void { throw new ViewDestroyedError(details); }
 }
 
 export class DebugAppView<T> extends AppView<T> {
@@ -335,7 +370,7 @@ export class DebugAppView<T> extends AppView<T> {
     try {
       return super.create(context, givenProjectableNodes, rootSelectorOrNode);
     } catch (e) {
-      this._rethrowWithContext(e, e.stack);
+      this._rethrowWithContext(e);
       throw e;
     }
   }
@@ -345,7 +380,7 @@ export class DebugAppView<T> extends AppView<T> {
     try {
       return super.injectorGet(token, nodeIndex, notFoundResult);
     } catch (e) {
-      this._rethrowWithContext(e, e.stack);
+      this._rethrowWithContext(e);
       throw e;
     }
   }
@@ -355,7 +390,7 @@ export class DebugAppView<T> extends AppView<T> {
     try {
       super.detach();
     } catch (e) {
-      this._rethrowWithContext(e, e.stack);
+      this._rethrowWithContext(e);
       throw e;
     }
   }
@@ -365,7 +400,7 @@ export class DebugAppView<T> extends AppView<T> {
     try {
       super.destroyLocal();
     } catch (e) {
-      this._rethrowWithContext(e, e.stack);
+      this._rethrowWithContext(e);
       throw e;
     }
   }
@@ -375,7 +410,7 @@ export class DebugAppView<T> extends AppView<T> {
     try {
       super.detectChanges(throwOnChange);
     } catch (e) {
-      this._rethrowWithContext(e, e.stack);
+      this._rethrowWithContext(e);
       throw e;
     }
   }
@@ -386,25 +421,25 @@ export class DebugAppView<T> extends AppView<T> {
     return this._currentDebugContext = new DebugContext(this, nodeIndex, rowNum, colNum);
   }
 
-  private _rethrowWithContext(e: any, stack: any) {
-    if (!(e instanceof ViewWrappedException)) {
-      if (!(e instanceof ExpressionChangedAfterItHasBeenCheckedException)) {
+  private _rethrowWithContext(e: any) {
+    if (!(e instanceof ViewWrappedError)) {
+      if (!(e instanceof ExpressionChangedAfterItHasBeenCheckedError)) {
         this.cdMode = ChangeDetectorStatus.Errored;
       }
       if (isPresent(this._currentDebugContext)) {
-        throw new ViewWrappedException(e, stack, this._currentDebugContext);
+        throw new ViewWrappedError(e, this._currentDebugContext);
       }
     }
   }
 
-  eventHandler(cb: Function): Function {
+  eventHandler<E, R>(cb: (event?: E) => R): (event?: E) => R {
     var superHandler = super.eventHandler(cb);
-    return (event: any) => {
+    return (event?: any) => {
       this._resetDebug();
       try {
         return superHandler(event);
       } catch (e) {
-        this._rethrowWithContext(e, e.stack);
+        this._rethrowWithContext(e);
         throw e;
       }
     };
@@ -430,4 +465,8 @@ function _findLastRenderNode(node: any): any {
     lastNode = node;
   }
   return lastNode;
+}
+
+class _AnimationOutputHandler {
+  constructor(public eventName: string, public eventPhase: string, public handler: Function) {}
 }

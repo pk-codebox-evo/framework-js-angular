@@ -7,53 +7,26 @@
  */
 
 import {Pipe, PipeTransform} from '@angular/core';
-import {StringWrapper, isBlank, isStringMap} from '../facade/lang';
+import {isBlank, isStringMap} from '../facade/lang';
 import {NgLocalization, getPluralCategory} from '../localization';
-import {InvalidPipeArgumentException} from './invalid_pipe_argument_exception';
+import {InvalidPipeArgumentError} from './invalid_pipe_argument_error';
 
 const _INTERPOLATION_REGEXP: RegExp = /#/g;
 
 /**
- *  Maps a value to a string that pluralizes the value properly.
+ * @ngModule CommonModule
+ * @whatItDoes Maps a value to a string that pluralizes the value according to locale rules.
+ * @howToUse `expression | i18nPlural:mapping`
+ * @description
  *
- *  ## Usage
- *
- *  expression | i18nPlural:mapping
- *
- *  where `expression` is a number and `mapping` is an object that mimics the ICU format,
- *  see http://userguide.icu-project.org/formatparse/messages
+ *  Where:
+ *  - `expression` is a number.
+ *  - `mapping` is an object that mimics the ICU format, see
+ *    http://userguide.icu-project.org/formatparse/messages
  *
  *  ## Example
  *
- *  ```
- *  class MyLocalization extends NgLocalization {
- *    getPluralCategory(value: any) {
- *      if(value > 1) {
- *        return 'other';
- *      }
- *    }
- *  }
- *
- *  @Component({
- *    selector: 'app',
- *    template: `
- *      <div>
- *        {{ messages.length | i18nPlural: messageMapping }}
- *      </div>
- *    `,
- *    providers: [{provide: NgLocalization, useClass: MyLocalization}]
- *  })
- *
- *  class MyApp {
- *    messages: any[];
- *    messageMapping: {[k:string]: string} = {
- *      '=0': 'No messages.',
- *      '=1': 'One message.',
- *      'other': '# messages.'
- *    }
- *    ...
- *  }
- *  ```
+ * {@example common/pipes/ts/i18n_pipe.ts region='I18nPluralPipeComponent'}
  *
  * @experimental
  */
@@ -65,11 +38,11 @@ export class I18nPluralPipe implements PipeTransform {
     if (isBlank(value)) return '';
 
     if (!isStringMap(pluralMap)) {
-      throw new InvalidPipeArgumentException(I18nPluralPipe, pluralMap);
+      throw new InvalidPipeArgumentError(I18nPluralPipe, pluralMap);
     }
 
-    const key = getPluralCategory(value, Object.getOwnPropertyNames(pluralMap), this._localization);
+    const key = getPluralCategory(value, Object.keys(pluralMap), this._localization);
 
-    return StringWrapper.replaceAll(pluralMap[key], _INTERPOLATION_REGEXP, value.toString());
+    return pluralMap[key].replace(_INTERPOLATION_REGEXP, value.toString());
   }
 }

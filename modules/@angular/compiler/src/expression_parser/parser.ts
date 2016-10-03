@@ -9,10 +9,8 @@
 import {Injectable} from '@angular/core';
 
 import * as chars from '../chars';
-import {ListWrapper} from '../facade/collection';
-import {BaseException} from '../facade/exceptions';
-import {RegExpWrapper, StringWrapper, escapeRegExp, isBlank, isPresent} from '../facade/lang';
-import {DEFAULT_INTERPOLATION_CONFIG, InterpolationConfig} from '../interpolation_config';
+import {StringWrapper, escapeRegExp, isBlank, isPresent} from '../facade/lang';
+import {DEFAULT_INTERPOLATION_CONFIG, InterpolationConfig} from '../ml_parser/interpolation_config';
 
 import {AST, ASTWithSource, AstVisitor, Binary, BindingPipe, Chain, Conditional, EmptyExpr, FunctionCall, ImplicitReceiver, Interpolation, KeyedRead, KeyedWrite, LiteralArray, LiteralMap, LiteralPrimitive, MethodCall, ParseSpan, ParserError, PrefixNot, PropertyRead, PropertyWrite, Quote, SafeMethodCall, SafePropertyRead, TemplateBinding} from './ast';
 import {EOF, Lexer, Token, TokenType, isIdentifier, isQuote} from './lexer';
@@ -29,8 +27,8 @@ export class TemplateBindingParseResult {
 }
 
 function _createInterpolateRegExp(config: InterpolationConfig): RegExp {
-  const regexp = escapeRegExp(config.start) + '([\\s\\S]*?)' + escapeRegExp(config.end);
-  return RegExpWrapper.create(regexp, 'g');
+  const pattern = escapeRegExp(config.start) + '([\\s\\S]*?)' + escapeRegExp(config.end);
+  return new RegExp(pattern, 'g');
 }
 
 @Injectable()
@@ -43,8 +41,8 @@ export class Parser {
       input: string, location: any,
       interpolationConfig: InterpolationConfig = DEFAULT_INTERPOLATION_CONFIG): ASTWithSource {
     this._checkNoInterpolation(input, location, interpolationConfig);
-    var tokens = this._lexer.tokenize(this._stripComments(input));
-    var ast = new _ParseAST(input, location, tokens, true, this.errors).parseChain();
+    const tokens = this._lexer.tokenize(this._stripComments(input));
+    const ast = new _ParseAST(input, location, tokens, true, this.errors).parseChain();
     return new ASTWithSource(ast, input, location, this.errors);
   }
 
@@ -128,10 +126,10 @@ export class Parser {
     if (parts.length <= 1) {
       return null;
     }
-    var strings: string[] = [];
-    var expressions: string[] = [];
+    const strings: string[] = [];
+    const expressions: string[] = [];
 
-    for (var i = 0; i < parts.length; i++) {
+    for (let i = 0; i < parts.length; i++) {
       var part: string = parts[i];
       if (i % 2 === 0) {
         // fixed string
@@ -155,15 +153,15 @@ export class Parser {
   }
 
   private _stripComments(input: string): string {
-    let i = this._commentStart(input);
+    const i = this._commentStart(input);
     return isPresent(i) ? input.substring(0, i).trim() : input;
   }
 
   private _commentStart(input: string): number {
     var outerQuote: number = null;
-    for (var i = 0; i < input.length - 1; i++) {
-      let char = StringWrapper.charCodeAt(input, i);
-      let nextChar = StringWrapper.charCodeAt(input, i + 1);
+    for (let i = 0; i < input.length - 1; i++) {
+      const char = StringWrapper.charCodeAt(input, i);
+      const nextChar = StringWrapper.charCodeAt(input, i + 1);
 
       if (char === chars.$SLASH && nextChar == chars.$SLASH && isBlank(outerQuote)) return i;
 
@@ -239,15 +237,10 @@ export class _ParseAST {
 
   peekKeywordLet(): boolean { return this.next.isKeywordLet(); }
 
-  peekDeprecatedKeywordVar(): boolean { return this.next.isKeywordDeprecatedVar(); }
-
-  peekDeprecatedOperatorHash(): boolean { return this.next.isOperator('#'); }
-
   expectCharacter(code: number) {
     if (this.optionalCharacter(code)) return;
     this.error(`Missing expected ${StringWrapper.fromCharCode(code)}`);
   }
-
 
   optionalOperator(op: string): boolean {
     if (this.next.isOperator(op)) {
@@ -511,9 +504,14 @@ export class _ParseAST {
       this.rparensExpected--;
       this.expectCharacter(chars.$RPAREN);
       return result;
-    } else if (this.next.isKeywordNull() || this.next.isKeywordUndefined()) {
+
+    } else if (this.next.isKeywordNull()) {
       this.advance();
       return new LiteralPrimitive(this.span(start), null);
+
+    } else if (this.next.isKeywordUndefined()) {
+      this.advance();
+      return new LiteralPrimitive(this.span(start), void 0);
 
     } else if (this.next.isKeywordTrue()) {
       this.advance();
@@ -522,6 +520,10 @@ export class _ParseAST {
     } else if (this.next.isKeywordFalse()) {
       this.advance();
       return new LiteralPrimitive(this.span(start), false);
+
+    } else if (this.next.isKeywordThis()) {
+      this.advance();
+      return new ImplicitReceiver(this.span(start));
 
     } else if (this.optionalCharacter(chars.$LBRACKET)) {
       this.rbracketsExpected++;
@@ -652,15 +654,7 @@ export class _ParseAST {
     let prefix: string = null;
     let warnings: string[] = [];
     while (this.index < this.tokens.length) {
-      var keyIsVar: boolean = this.peekKeywordLet();
-      if (!keyIsVar && this.peekDeprecatedKeywordVar()) {
-        keyIsVar = true;
-        warnings.push(`"var" inside of expressions is deprecated. Use "let" instead!`);
-      }
-      if (!keyIsVar && this.peekDeprecatedOperatorHash()) {
-        keyIsVar = true;
-        warnings.push(`"#" inside of expressions is deprecated. Use "let" instead!`);
-      }
+      const keyIsVar: boolean = this.peekKeywordLet();
       if (keyIsVar) {
         this.advance();
       }
@@ -681,12 +675,10 @@ export class _ParseAST {
         } else {
           name = '\$implicit';
         }
-      } else if (
-          this.next !== EOF && !this.peekKeywordLet() && !this.peekDeprecatedKeywordVar() &&
-          !this.peekDeprecatedOperatorHash()) {
+      } else if (this.next !== EOF && !this.peekKeywordLet()) {
         const start = this.inputIndex;
-        var ast = this.parsePipe();
-        var source = this.input.substring(start, this.inputIndex);
+        const ast = this.parsePipe();
+        const source = this.input.substring(start, this.inputIndex);
         expression = new ASTWithSource(ast, source, this.location, this.errors);
       }
       bindings.push(new TemplateBinding(key, keyIsVar, name, expression));
@@ -716,7 +708,7 @@ export class _ParseAST {
   // of the '(' begins an '(' <expr> ')' production). The recovery points of grouping symbols
   // must be conditional as they must be skipped if none of the calling productions are not
   // expecting the closing token else we will never make progress in the case of an
-  // extrainious group closing symbol (such as a stray ')'). This is not the case for ';' because
+  // extraneous group closing symbol (such as a stray ')'). This is not the case for ';' because
   // parseChain() is always the root production and it expects a ';'.
 
   // If a production expects one of these token it increments the corresponding nesting count,
@@ -780,13 +772,7 @@ class SimpleExpressionChecker implements AstVisitor {
 
   visitKeyedWrite(ast: KeyedWrite, context: any) { this.simple = false; }
 
-  visitAll(asts: any[]): any[] {
-    var res = ListWrapper.createFixedSize(asts.length);
-    for (var i = 0; i < asts.length; ++i) {
-      res[i] = asts[i].visit(this);
-    }
-    return res;
-  }
+  visitAll(asts: any[]): any[] { return asts.map(node => node.visit(this)); }
 
   visitChain(ast: Chain, context: any) { this.simple = false; }
 

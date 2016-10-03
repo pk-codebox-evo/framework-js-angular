@@ -6,11 +6,10 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {AnimationMetadata, animate, group, sequence, style, transition, trigger} from '@angular/core';
-import {AsyncTestCompleter, beforeEach, beforeEachProviders, ddescribe, describe, expect, iit, inject, it, xdescribe, xit} from '@angular/core/testing/testing_internal';
-
-import {StringMapWrapper} from '../../../platform-browser-dynamic/src/facade/collection';
-import {AnimationCompiler, CompiledAnimation} from '../../src/animation/animation_compiler';
+import {AnimationMetadata, animate, sequence, style, transition, trigger} from '@angular/core';
+import {beforeEach, describe, expect, inject, it} from '@angular/core/testing/testing_internal';
+import {AnimationCompiler, AnimationEntryCompileResult} from '../../src/animation/animation_compiler';
+import {AnimationParser} from '../../src/animation/animation_parser';
 import {CompileAnimationEntryMetadata, CompileDirectiveMetadata, CompileTemplateMetadata, CompileTypeMetadata} from '../../src/compile_metadata';
 import {CompileMetadataResolver} from '../../src/metadata_resolver';
 
@@ -20,11 +19,14 @@ export function main() {
     beforeEach(
         inject([CompileMetadataResolver], (res: CompileMetadataResolver) => { resolver = res; }));
 
-    var compiler = new AnimationCompiler();
+    const parser = new AnimationParser();
+    const compiler = new AnimationCompiler();
 
-    var compileAnimations = (component: CompileDirectiveMetadata): CompiledAnimation => {
-      return compiler.compileComponent(component, [])[0];
-    };
+    var compileAnimations =
+        (component: CompileDirectiveMetadata): AnimationEntryCompileResult[] => {
+          const parsedAnimations = parser.parseComponent(component);
+          return compiler.compile(component.type.name, parsedAnimations);
+        };
 
     var compileTriggers = (input: any[]) => {
       var entries: CompileAnimationEntryMetadata[] = input.map(entry => {
@@ -63,15 +65,6 @@ export function main() {
 
       expect(capturedErrorMessage)
           .toMatch(/Animation states via styles must be prefixed with a ":"/);
-    });
-
-    it('should throw an error when two or more animation triggers contain the same name', () => {
-      var t1Data: any[] = [];
-      var t2Data: any[] = [];
-
-      expect(() => {
-        compileTriggers([['myTrigger', t1Data], ['myTrigger', t2Data]]);
-      }).toThrowError(/The animation trigger "myTrigger" has already been registered on "myCmp"/);
     });
   });
 }

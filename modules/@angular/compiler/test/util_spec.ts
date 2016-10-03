@@ -6,10 +6,10 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {fakeAsync, flushMicrotasks} from '@angular/core/testing/fake_async';
-import {beforeEach, beforeEachProviders, ddescribe, describe, expect, iit, inject, it, xit} from '@angular/core/testing/testing_internal';
+import {fakeAsync} from '@angular/core/testing/fake_async';
+import {describe, expect, it} from '@angular/core/testing/testing_internal';
 
-import {SyncAsyncResult} from '../src/util';
+import {SyncAsyncResult, splitAtColon} from '../src/util';
 
 export function main() {
   describe('util', () => {
@@ -20,5 +20,21 @@ export function main() {
            sar.asyncResult.then((v: any) => expect(v).toBe(syncValue));
          }));
     });
-  })
+
+    describe('splitAtColon', () => {
+      it('should split when a single ":" is present', () => {
+        expect(splitAtColon('a:b', [])).toEqual(['a', 'b']);
+      });
+
+      it('should trim parts', () => { expect(splitAtColon(' a : b ', [])).toEqual(['a', 'b']); });
+
+      it('should support multiple ":"', () => {
+        expect(splitAtColon('a:b:c', [])).toEqual(['a', 'b:c']);
+      });
+
+      it('should use the default value when no ":" is present', () => {
+        expect(splitAtColon('ab', ['c', 'd'])).toEqual(['c', 'd']);
+      });
+    });
+  });
 }

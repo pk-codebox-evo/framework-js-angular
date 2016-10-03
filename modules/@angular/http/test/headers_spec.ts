@@ -6,9 +6,7 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {beforeEach, ddescribe, describe, expect, iit, inject, it, xit} from '@angular/core/testing/testing_internal';
-
-import {Map, StringMapWrapper} from '../src/facade/collection';
+import {beforeEach, describe, expect, it} from '@angular/core/testing/testing_internal';
 import {Json} from '../src/facade/lang';
 import {Headers} from '../src/headers';
 
@@ -20,32 +18,41 @@ export function main() {
       var firstHeaders = new Headers();  // Currently empty
       firstHeaders.append('Content-Type', 'image/jpeg');
       expect(firstHeaders.get('Content-Type')).toBe('image/jpeg');
-      var httpHeaders = StringMapWrapper.create();
-      StringMapWrapper.set(httpHeaders, 'Content-Type', 'image/jpeg');
-      StringMapWrapper.set(httpHeaders, 'Accept-Charset', 'utf-8');
-      StringMapWrapper.set(httpHeaders, 'X-My-Custom-Header', 'Zeke are cool');
-      var secondHeaders = new Headers(httpHeaders);
-      var secondHeadersObj = new Headers(secondHeaders);
+      // "HTTP character sets are identified by case-insensitive tokens"
+      // Spec at https://tools.ietf.org/html/rfc2616
+      expect(firstHeaders.get('content-type')).toBe('image/jpeg');
+      expect(firstHeaders.get('content-Type')).toBe('image/jpeg');
+      const httpHeaders = {
+        'Content-Type': 'image/jpeg',
+        'Accept-Charset': 'utf-8',
+        'X-My-Custom-Header': 'Zeke are cool',
+      };
+      const secondHeaders = new Headers(httpHeaders);
+      const secondHeadersObj = new Headers(secondHeaders);
       expect(secondHeadersObj.get('Content-Type')).toBe('image/jpeg');
     });
 
 
     describe('initialization', () => {
       it('should merge values in provided dictionary', () => {
-        var map = StringMapWrapper.create();
-        StringMapWrapper.set(map, 'foo', 'bar');
-        var headers = new Headers(map);
+        const headers = new Headers({'foo': 'bar'});
         expect(headers.get('foo')).toBe('bar');
         expect(headers.getAll('foo')).toEqual(['bar']);
+      });
+      it('should not alter the values of a provided header template', () => {
+        // Spec at https://fetch.spec.whatwg.org/#concept-headers-fill
+        // test for https://github.com/angular/angular/issues/6845
+        const firstHeaders = new Headers();
+        const secondHeaders = new Headers(firstHeaders);
+        secondHeaders.append('Content-Type', 'image/jpeg');
+        expect(firstHeaders.has('Content-Type')).toBeFalsy();
       });
     });
 
 
     describe('.set()', () => {
       it('should clear all values and re-set for the provided key', () => {
-        var map = StringMapWrapper.create();
-        StringMapWrapper.set(map, 'foo', 'bar');
-        var headers = new Headers(map);
+        const headers = new Headers({'foo': 'bar'});
         expect(headers.get('foo')).toBe('bar');
         expect(headers.getAll('foo')).toEqual(['bar']);
         headers.set('foo', 'baz');
@@ -72,7 +79,7 @@ export function main() {
       beforeEach(() => {
         headers = new Headers();
         inputArr = ['application/jeisen', 'application/jason', 'application/patrickjs'];
-        obj = {'Accept': inputArr};
+        obj = {'accept': inputArr};
         headers.set('Accept', inputArr);
       });
 
@@ -105,9 +112,9 @@ export function main() {
     it('should parse a response header string', () => {
 
       let responseHeaderString = `Date: Fri, 20 Nov 2015 01:45:26 GMT
-        Content-Type: application/json; charset=utf-8
-        Transfer-Encoding: chunked
-        Connection: keep-alive`;
+Content-Type: application/json; charset=utf-8
+Transfer-Encoding: chunked
+Connection: keep-alive`;
 
       let responseHeaders = Headers.fromResponseHeaderString(responseHeaderString);
 

@@ -6,14 +6,14 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {Injector, ReflectiveInjector, provide} from '@angular/core';
-import {afterEach, beforeEach, ddescribe, describe, expect, iit, inject, it, xit} from '@angular/core/testing/testing_internal';
-import {AsyncTestCompleter} from '@angular/core/testing/testing_internal';
+import {Injector, ReflectiveInjector} from '@angular/core';
+import {TestBed, getTestBed} from '@angular/core/testing';
+import {AsyncTestCompleter, afterEach, beforeEach, describe, inject, it} from '@angular/core/testing/testing_internal';
+import {expect} from '@angular/platform-browser/testing/matchers';
 import {Observable} from 'rxjs/Observable';
-import {Subject} from 'rxjs/Subject';
 import {zip} from 'rxjs/observable/zip';
 
-import {BaseRequestOptions, ConnectionBackend, HTTP_PROVIDERS, Http, JSONPBackend, JSONP_PROVIDERS, Jsonp, Request, RequestMethod, RequestOptions, Response, ResponseContentType, ResponseOptions, URLSearchParams, XHRBackend} from '../http';
+import {BaseRequestOptions, ConnectionBackend, Http, HttpModule, JSONPBackend, Jsonp, JsonpModule, Request, RequestMethod, RequestOptions, Response, ResponseContentType, ResponseOptions, URLSearchParams, XHRBackend} from '../index';
 import {Json} from '../src/facade/lang';
 import {stringToArrayBuffer} from '../src/http_utils';
 import {MockBackend, MockConnection} from '../testing/mock_backend';
@@ -22,32 +22,32 @@ export function main() {
   describe('injectables', () => {
     var url = 'http://foo.bar';
     var http: Http;
-    var parentInjector: ReflectiveInjector;
-    var childInjector: ReflectiveInjector;
+    var injector: Injector;
     var jsonpBackend: MockBackend;
     var xhrBackend: MockBackend;
     var jsonp: Jsonp;
 
+    beforeEach(() => {
+      TestBed.configureTestingModule({
+        imports: [HttpModule, JsonpModule],
+        providers: [
+          {provide: XHRBackend, useClass: MockBackend},
+          {provide: JSONPBackend, useClass: MockBackend}
+        ]
+      });
+      injector = getTestBed();
+    });
+
     it('should allow using jsonpInjectables and httpInjectables in same injector',
        inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
-         parentInjector = ReflectiveInjector.resolveAndCreate([
-           {provide: XHRBackend, useClass: MockBackend},
-           {provide: JSONPBackend, useClass: MockBackend}
-         ]);
 
-         childInjector = parentInjector.resolveAndCreateChild([
-           HTTP_PROVIDERS, JSONP_PROVIDERS, {provide: XHRBackend, useClass: MockBackend},
-           {provide: JSONPBackend, useClass: MockBackend}
-         ]);
-
-         http = childInjector.get(Http);
-         jsonp = childInjector.get(Jsonp);
-         jsonpBackend = childInjector.get(JSONPBackend);
-         xhrBackend = childInjector.get(XHRBackend);
+         http = injector.get(Http);
+         jsonp = injector.get(Jsonp);
+         jsonpBackend = injector.get(JSONPBackend);
+         xhrBackend = injector.get(XHRBackend);
 
          var xhrCreatedConnections = 0;
          var jsonpCreatedConnections = 0;
-
 
          xhrBackend.connections.subscribe(() => {
            xhrCreatedConnections++;
@@ -311,6 +311,19 @@ export function main() {
       });
 
 
+      describe('.options()', () => {
+        it('should perform an options request for given url',
+           inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
+             backend.connections.subscribe((c: MockConnection) => {
+               expect(c.request.method).toBe(RequestMethod.Options);
+               backend.resolveAllConnections();
+               async.done();
+             });
+             http.options(url).subscribe((res: Response) => {});
+           }));
+      });
+
+
       describe('searchParams', () => {
         it('should append search params to url',
            inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
@@ -354,7 +367,7 @@ export function main() {
         it('should allow case insensitive strings for method names', () => {
           inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
             backend.connections.subscribe((c: MockConnection) => {
-              expect(c.request.method).toBe(RequestMethod.Post)
+              expect(c.request.method).toBe(RequestMethod.Post);
               c.mockRespond(new Response(new ResponseOptions({body: 'Thank you'})));
               async.done();
             });
@@ -478,7 +491,7 @@ export function main() {
                    return stringToArrayBuffer(Json.stringify(message));
                }
              };
-             c.mockRespond(new Response(new ResponseOptions({body: body()})))
+             c.mockRespond(new Response(new ResponseOptions({body: body()})));
            });
 
            zip(http.get(

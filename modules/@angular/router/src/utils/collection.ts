@@ -6,11 +6,14 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import 'rxjs/add/operator/concatAll';
-import 'rxjs/add/operator/last';
-
 import {Observable} from 'rxjs/Observable';
+import {fromPromise} from 'rxjs/observable/fromPromise';
 import {of } from 'rxjs/observable/of';
+import {concatAll} from 'rxjs/operator/concatAll';
+import {every} from 'rxjs/operator/every';
+import * as l from 'rxjs/operator/last';
+import {map} from 'rxjs/operator/map';
+import {mergeAll} from 'rxjs/operator/mergeAll';
 
 import {PRIMARY_OUTLET} from '../shared';
 
@@ -94,7 +97,7 @@ export function waitForMap<A, B>(
 
   forEach(obj, (a: A, k: string) => {
     if (k === PRIMARY_OUTLET) {
-      waitFor.push(fn(k, a).map((_: B) => {
+      waitFor.push(map.call(fn(k, a), (_: B) => {
         res[k] = _;
         return _;
       }));
@@ -103,7 +106,7 @@ export function waitForMap<A, B>(
 
   forEach(obj, (a: A, k: string) => {
     if (k !== PRIMARY_OUTLET) {
-      waitFor.push(fn(k, a).map((_: B) => {
+      waitFor.push(map.call(fn(k, a), (_: B) => {
         res[k] = _;
         return _;
       }));
@@ -111,8 +114,25 @@ export function waitForMap<A, B>(
   });
 
   if (waitFor.length > 0) {
-    return of (...waitFor).concatAll().last().map((last) => res);
+    const concatted$ = concatAll.call(of (...waitFor));
+    const last$ = l.last.call(concatted$);
+    return map.call(last$, () => res);
   } else {
     return of (res);
+  }
+}
+
+export function andObservables(observables: Observable<Observable<any>>): Observable<boolean> {
+  const merged$ = mergeAll.call(observables);
+  return every.call(merged$, (result: any) => result === true);
+}
+
+export function wrapIntoObservable<T>(value: T | Promise<T>| Observable<T>): Observable<T> {
+  if (value instanceof Observable) {
+    return value;
+  } else if (value instanceof Promise) {
+    return fromPromise(value);
+  } else {
+    return of (value);
   }
 }

@@ -7,7 +7,7 @@
  */
 
 import {DirectiveResolver} from '@angular/compiler';
-import {DirectiveMetadata, Type} from '@angular/core';
+import {Directive, Type} from '@angular/core';
 
 var COMPONENT_SELECTOR = /^[\w|-]*$/;
 var SKEWER_CASE = /-(\w)/g;
@@ -25,14 +25,14 @@ export interface AttrProp {
 }
 
 export interface ComponentInfo {
-  type: Type;
+  type: Type<any>;
   selector: string;
   inputs: AttrProp[];
   outputs: AttrProp[];
 }
 
-export function getComponentInfo(type: Type): ComponentInfo {
-  var resolvedMetadata: DirectiveMetadata = directiveResolver.resolve(type);
+export function getComponentInfo(type: Type<any>): ComponentInfo {
+  var resolvedMetadata: Directive = directiveResolver.resolve(type);
   var selector = resolvedMetadata.selector;
   if (!selector.match(COMPONENT_SELECTOR)) {
     throw new Error('Only selectors matching element names are supported, got: ' + selector);

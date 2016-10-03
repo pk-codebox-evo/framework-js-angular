@@ -6,55 +6,33 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {AppModule, PLATFORM_DIRECTIVES, Type} from '@angular/core';
+import {NgModule} from '@angular/core';
 
-import {FORM_DIRECTIVES, REACTIVE_FORM_DIRECTIVES} from './directives';
+import {InternalFormsSharedModule, REACTIVE_DRIVEN_DIRECTIVES, TEMPLATE_DRIVEN_DIRECTIVES} from './directives';
 import {RadioControlRegistry} from './directives/radio_control_value_accessor';
 import {FormBuilder} from './form_builder';
 
 
-
 /**
- * Shorthand set of providers used for building Angular forms.
- * @experimental
+ * The ng module for forms.
+ * @stable
  */
-export const FORM_PROVIDERS: Type[] = /*@ts2dart_const*/[RadioControlRegistry];
-
-/**
- * Shorthand set of providers used for building reactive Angular forms.
- * @experimental
- */
-export const REACTIVE_FORM_PROVIDERS: Type[] =
-    /*@ts2dart_const*/[FormBuilder, RadioControlRegistry];
-
-/**
- * The app module for forms.
- * @experimental
- */
-@AppModule({providers: [FORM_PROVIDERS], directives: FORM_DIRECTIVES, pipes: []})
+@NgModule({
+  declarations: TEMPLATE_DRIVEN_DIRECTIVES,
+  providers: [RadioControlRegistry],
+  exports: [InternalFormsSharedModule, TEMPLATE_DRIVEN_DIRECTIVES]
+})
 export class FormsModule {
 }
 
 /**
- * The app module for reactive forms.
- * @experimental
+ * The ng module for reactive forms.
+ * @stable
  */
-@AppModule({providers: [REACTIVE_FORM_PROVIDERS], directives: REACTIVE_FORM_DIRECTIVES, pipes: []})
+@NgModule({
+  declarations: [REACTIVE_DRIVEN_DIRECTIVES],
+  providers: [FormBuilder, RadioControlRegistry],
+  exports: [InternalFormsSharedModule, REACTIVE_DRIVEN_DIRECTIVES]
+})
 export class ReactiveFormsModule {
-}
-
-/**
- * @deprecated
- */
-export function disableDeprecatedForms(): any[] {
-  return [];
-}
-
-/**
- * @deprecated
- */
-export function provideForms(): any[] {
-  return [
-    {provide: PLATFORM_DIRECTIVES, useValue: FORM_DIRECTIVES, multi: true}, REACTIVE_FORM_PROVIDERS
-  ];
 }

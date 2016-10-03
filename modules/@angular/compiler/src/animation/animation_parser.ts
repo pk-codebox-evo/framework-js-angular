@@ -6,12 +6,12 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {ANY_STATE, FILL_STYLE_FLAG} from '../../core_private';
-import {CompileAnimationAnimateMetadata, CompileAnimationEntryMetadata, CompileAnimationGroupMetadata, CompileAnimationKeyframesSequenceMetadata, CompileAnimationMetadata, CompileAnimationSequenceMetadata, CompileAnimationStateDeclarationMetadata, CompileAnimationStateTransitionMetadata, CompileAnimationStyleMetadata, CompileAnimationWithStepsMetadata} from '../compile_metadata';
+import {CompileAnimationAnimateMetadata, CompileAnimationEntryMetadata, CompileAnimationGroupMetadata, CompileAnimationKeyframesSequenceMetadata, CompileAnimationMetadata, CompileAnimationSequenceMetadata, CompileAnimationStateDeclarationMetadata, CompileAnimationStateTransitionMetadata, CompileAnimationStyleMetadata, CompileAnimationWithStepsMetadata, CompileDirectiveMetadata} from '../compile_metadata';
 import {ListWrapper, StringMapWrapper} from '../facade/collection';
-import {NumberWrapper, RegExpWrapper, isArray, isBlank, isPresent, isString, isStringMap} from '../facade/lang';
+import {isArray, isBlank, isPresent, isString, isStringMap} from '../facade/lang';
 import {Math} from '../facade/math';
 import {ParseError} from '../parse_util';
+import {ANY_STATE, FILL_STYLE_FLAG} from '../private_import_core';
 
 import {AnimationAst, AnimationEntryAst, AnimationGroupAst, AnimationKeyframeAst, AnimationSequenceAst, AnimationStateDeclarationAst, AnimationStateTransitionAst, AnimationStateTransitionExpression, AnimationStepAst, AnimationStylesAst, AnimationWithStepsAst} from './animation_ast';
 import {StylesCollection} from './styles_collection';
@@ -21,36 +21,70 @@ const _TERMINAL_KEYFRAME = 1;
 const _ONE_SECOND = 1000;
 
 export class AnimationParseError extends ParseError {
-  constructor(message: any /** TODO #9100 */) { super(null, message); }
+  constructor(message: string) { super(null, message); }
   toString(): string { return `${this.msg}`; }
 }
 
-export class ParsedAnimationResult {
+export class AnimationEntryParseResult {
   constructor(public ast: AnimationEntryAst, public errors: AnimationParseError[]) {}
 }
 
-export function parseAnimationEntry(entry: CompileAnimationEntryMetadata): ParsedAnimationResult {
-  var errors: AnimationParseError[] = [];
-  var stateStyles: {[key: string]: AnimationStylesAst} = {};
-  var transitions: CompileAnimationStateTransitionMetadata[] = [];
+export class AnimationParser {
+  parseComponent(component: CompileDirectiveMetadata): AnimationEntryAst[] {
+    const errors: string[] = [];
+    const componentName = component.type.name;
+    const animationTriggerNames = new Set<string>();
+    const asts = component.template.animations.map(entry => {
+      const result = this.parseEntry(entry);
+      const ast = result.ast;
+      const triggerName = ast.name;
+      if (animationTriggerNames.has(triggerName)) {
+        result.errors.push(new AnimationParseError(
+            `The animation trigger "${triggerName}" has already been registered for the ${componentName} component`));
+      } else {
+        animationTriggerNames.add(triggerName);
+      }
+      if (result.errors.length > 0) {
+        let errorMessage =
+            `- Unable to parse the animation sequence for "${triggerName}" on the ${componentName} component due to the following errors:`;
+        result.errors.forEach(
+            (error: AnimationParseError) => { errorMessage += '\n-- ' + error.msg; });
+        errors.push(errorMessage);
+      }
+      return ast;
+    });
 
-  var stateDeclarationAsts: any[] /** TODO #9100 */ = [];
-  entry.definitions.forEach(def => {
-    if (def instanceof CompileAnimationStateDeclarationMetadata) {
-      _parseAnimationDeclarationStates(def, errors).forEach(ast => {
-        stateDeclarationAsts.push(ast);
-        stateStyles[ast.stateName] = ast.styles;
-      });
-    } else {
-      transitions.push(<CompileAnimationStateTransitionMetadata>def);
+    if (errors.length > 0) {
+      const errorString = errors.join('\n');
+      throw new Error(`Animation parse errors:\n${errorString}`);
     }
-  });
 
-  var stateTransitionAsts =
-      transitions.map(transDef => _parseAnimationStateTransition(transDef, stateStyles, errors));
+    return asts;
+  }
 
-  var ast = new AnimationEntryAst(entry.name, stateDeclarationAsts, stateTransitionAsts);
-  return new ParsedAnimationResult(ast, errors);
+  parseEntry(entry: CompileAnimationEntryMetadata): AnimationEntryParseResult {
+    var errors: AnimationParseError[] = [];
+    var stateStyles: {[key: string]: AnimationStylesAst} = {};
+    var transitions: CompileAnimationStateTransitionMetadata[] = [];
+
+    var stateDeclarationAsts: AnimationStateDeclarationAst[] = [];
+    entry.definitions.forEach(def => {
+      if (def instanceof CompileAnimationStateDeclarationMetadata) {
+        _parseAnimationDeclarationStates(def, errors).forEach(ast => {
+          stateDeclarationAsts.push(ast);
+          stateStyles[ast.stateName] = ast.styles;
+        });
+      } else {
+        transitions.push(<CompileAnimationStateTransitionMetadata>def);
+      }
+    });
+
+    var stateTransitionAsts =
+        transitions.map(transDef => _parseAnimationStateTransition(transDef, stateStyles, errors));
+
+    var ast = new AnimationEntryAst(entry.name, stateDeclarationAsts, stateTransitionAsts);
+    return new AnimationEntryParseResult(ast, errors);
+  }
 }
 
 function _parseAnimationDeclarationStates(
@@ -91,16 +125,32 @@ function _parseAnimationStateTransition(
     _fillAnimationAstStartingKeyframes(animationAst, styles, errors);
   }
 
-  var sequenceAst = (animationAst instanceof AnimationSequenceAst) ?
-      <AnimationSequenceAst>animationAst :
+  var stepsAst: AnimationWithStepsAst = (animationAst instanceof AnimationWithStepsAst) ?
+      animationAst :
       new AnimationSequenceAst([animationAst]);
 
-  return new AnimationStateTransitionAst(transitionExprs, sequenceAst);
+  return new AnimationStateTransitionAst(transitionExprs, stepsAst);
+}
+
+function _parseAnimationAlias(alias: string, errors: AnimationParseError[]): string {
+  switch (alias) {
+    case ':enter':
+      return 'void => *';
+    case ':leave':
+      return '* => void';
+    default:
+      errors.push(
+          new AnimationParseError(`the transition alias value "${alias}" is not supported`));
+      return '* => *';
+  }
 }
 
 function _parseAnimationTransitionExpr(
     eventStr: string, errors: AnimationParseError[]): AnimationStateTransitionExpression[] {
-  var expressions: any[] /** TODO #9100 */ = [];
+  var expressions: AnimationStateTransitionExpression[] = [];
+  if (eventStr[0] == ':') {
+    eventStr = _parseAnimationAlias(eventStr, errors);
+  }
   var match = eventStr.match(/^(\*|[-\w]+)\s*(<?[=-]>)\s*(\*|[-\w]+)$/);
   if (!isPresent(match) || match.length < 4) {
     errors.push(new AnimationParseError(`the provided ${eventStr} is not of a supported format`));
@@ -154,7 +204,9 @@ function _normalizeStyleSteps(
     entry: CompileAnimationMetadata, stateStyles: {[key: string]: AnimationStylesAst},
     errors: AnimationParseError[]): CompileAnimationMetadata {
   var steps = _normalizeStyleStepEntry(entry, stateStyles, errors);
-  return new CompileAnimationSequenceMetadata(steps);
+  return (entry instanceof CompileAnimationGroupMetadata) ?
+      new CompileAnimationGroupMetadata(steps) :
+      new CompileAnimationSequenceMetadata(steps);
 }
 
 function _mergeAnimationStyles(
@@ -465,18 +517,18 @@ function _fillAnimationAstStartingKeyframes(
 
 function _parseTimeExpression(
     exp: string | number, errors: AnimationParseError[]): _AnimationTimings {
-  var regex = /^([\.\d]+)(m?s)(?:\s+([\.\d]+)(m?s))?(?:\s+([-a-z]+(?:\(.+?\))?))?/gi;
+  var regex = /^([\.\d]+)(m?s)(?:\s+([\.\d]+)(m?s))?(?:\s+([-a-z]+(?:\(.+?\))?))?/i;
   var duration: number;
   var delay: number = 0;
   var easing: string = null;
   if (isString(exp)) {
-    var matches = RegExpWrapper.firstMatch(regex, <string>exp);
-    if (!isPresent(matches)) {
+    const matches = exp.match(regex);
+    if (matches === null) {
       errors.push(new AnimationParseError(`The provided timing value "${exp}" is invalid.`));
       return new _AnimationTimings(0, 0, null);
     }
 
-    var durationMatch = NumberWrapper.parseFloat(matches[1]);
+    var durationMatch = parseFloat(matches[1]);
     var durationUnit = matches[2];
     if (durationUnit == 's') {
       durationMatch *= _ONE_SECOND;
@@ -486,7 +538,7 @@ function _parseTimeExpression(
     var delayMatch = matches[3];
     var delayUnit = matches[4];
     if (isPresent(delayMatch)) {
-      var delayVal: number = NumberWrapper.parseFloat(delayMatch);
+      var delayVal: number = parseFloat(delayMatch);
       if (isPresent(delayUnit) && delayUnit == 's') {
         delayVal *= _ONE_SECOND;
       }

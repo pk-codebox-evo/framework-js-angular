@@ -6,21 +6,18 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import 'rxjs/add/operator/map';
-import 'rxjs/add/operator/mergeMap';
-import 'rxjs/add/operator/mergeAll';
-import 'rxjs/add/operator/reduce';
-import 'rxjs/add/operator/every';
-import 'rxjs/add/observable/from';
-import 'rxjs/add/observable/fromPromise';
-import 'rxjs/add/observable/forkJoin';
-import 'rxjs/add/observable/of';
-
 import {Location} from '@angular/common';
-import {AppModuleFactoryLoader, ComponentFactoryResolver, ComponentResolver, Injector, ReflectiveInjector, Type} from '@angular/core';
+import {Compiler, ComponentFactoryResolver, Injector, NgModuleFactoryLoader, ReflectiveInjector, Type} from '@angular/core';
 import {Observable} from 'rxjs/Observable';
 import {Subject} from 'rxjs/Subject';
 import {Subscription} from 'rxjs/Subscription';
+import {from} from 'rxjs/observable/from';
+import {of } from 'rxjs/observable/of';
+import {every} from 'rxjs/operator/every';
+import {map} from 'rxjs/operator/map';
+import {mergeAll} from 'rxjs/operator/mergeAll';
+import {mergeMap} from 'rxjs/operator/mergeMap';
+import {reduce} from 'rxjs/operator/reduce';
 
 import {applyRedirects} from './apply_redirects';
 import {ResolveData, Routes, validateConfig} from './config';
@@ -28,93 +25,260 @@ import {createRouterState} from './create_router_state';
 import {createUrlTree} from './create_url_tree';
 import {RouterOutlet} from './directives/router_outlet';
 import {recognize} from './recognize';
-import {resolve} from './resolve';
 import {LoadedRouterConfig, RouterConfigLoader} from './router_config_loader';
 import {RouterOutletMap} from './router_outlet_map';
 import {ActivatedRoute, ActivatedRouteSnapshot, RouterState, RouterStateSnapshot, advanceActivatedRoute, createEmptyState} from './router_state';
-import {PRIMARY_OUTLET, Params} from './shared';
-import {UrlSerializer, UrlTree, createEmptyUrlTree} from './url_tree';
-import {forEach, merge, shallowEqual, waitForMap} from './utils/collection';
+import {NavigationCancelingError, PRIMARY_OUTLET, Params} from './shared';
+import {UrlSerializer, UrlTree, containsTree, createEmptyUrlTree} from './url_tree';
+import {andObservables, forEach, merge, shallowEqual, waitForMap, wrapIntoObservable} from './utils/collection';
 import {TreeNode} from './utils/tree';
 
+declare var Zone: any;
+
+/**
+ * @whatItDoes Represents the extra options used during navigation.
+ *
+ * @stable
+ */
 export interface NavigationExtras {
+  /**
+  * Enables relative navigation from the current ActivatedRoute.
+  *
+  * Configuration:
+  *
+  * ```
+  * [{
+  *   path: 'parent',
+  *   component: ParentComponent,
+  *   children: [
+  *     {
+  *       path: 'list',
+  *       component: ListComponent
+  *     },
+  *     {
+  *       path: 'child',
+  *       component: ChildComponent
+  *     }
+  *   ]
+  * }]
+  * ```
+  *
+  * Navigate to list route from child route:
+  *
+  * ```
+  *  @Component({...})
+  *  class ChildComponent {
+  *    constructor(private router: Router, private route: ActivatedRoute) {}
+  *
+  *    go() {
+  *      this.router.navigate(['../list'], { relativeTo: this.route });
+  *    }
+  *  }
+  * ```
+  */
   relativeTo?: ActivatedRoute;
+
+  /**
+  * Sets query parameters to the URL.
+  *
+  * ```
+  * // Navigate to /results?page=1
+  * this.router.navigate(['/results'], { queryParams: { page: 1 } });
+  * ```
+  */
   queryParams?: Params;
+
+  /**
+  * Sets the hash fragment for the URL.
+  *
+  * ```
+  * // Navigate to /results#top
+  * this.router.navigate(['/results'], { fragment: 'top' });
+  * ```
+  */
   fragment?: string;
+
+  /**
+  * Preserves the query parameters for the next navigation.
+  *
+  * ```
+  * // Preserve query params from /results?page=1 to /view?page=1
+  * this.router.navigate(['/view'], { preserveQueryParams: true });
+  * ```
+  */
+  preserveQueryParams?: boolean;
+  /**
+  * Preserves the fragment for the next navigation
+  *
+  * ```
+  * // Preserve fragment from /results#top to /view#top
+  * this.router.navigate(['/view'], { preserveFragment: true });
+  * ```
+  */
+  preserveFragment?: boolean;
+  /**
+  * Navigates without pushing a new state into history.
+  *
+  * ```
+  * // Navigate silently to /view
+  * this.router.navigate(['/view'], { skipLocationChange: true });
+  * ```
+  */
+  skipLocationChange?: boolean;
+  /**
+  * Navigates while replacing the current state in history.
+  *
+  * ```
+  * // Navigate to /view
+  * this.router.navigate(['/view'], { replaceUrl: true });
+  * ```
+  */
+  replaceUrl?: boolean;
 }
 
 /**
- * An event triggered when a navigation starts
+ * @whatItDoes Represents an event triggered when a navigation starts.
  *
  * @stable
  */
 export class NavigationStart {
-  constructor(public id: number, public url: string) {}
+  // TODO: vsavkin: make internal
+  constructor(
+      /** @docsNotRequired */
+      public id: number,
 
+      /** @docsNotRequired */
+      public url: string) {}
+
+  /** @docsNotRequired */
   toString(): string { return `NavigationStart(id: ${this.id}, url: '${this.url}')`; }
 }
 
 /**
- * An event triggered when a navigation ends successfully
+ * @whatItDoes Represents an event triggered when a navigation ends successfully.
  *
  * @stable
  */
 export class NavigationEnd {
-  constructor(public id: number, public url: string, public urlAfterRedirects: string) {}
+  // TODO: vsavkin: make internal
+  constructor(
+      /** @docsNotRequired */
+      public id: number,
 
+      /** @docsNotRequired */
+      public url: string,
+
+      /** @docsNotRequired */
+      public urlAfterRedirects: string) {}
+
+  /** @docsNotRequired */
   toString(): string {
     return `NavigationEnd(id: ${this.id}, url: '${this.url}', urlAfterRedirects: '${this.urlAfterRedirects}')`;
   }
 }
 
 /**
- * An event triggered when a navigation is canceled
+ * @whatItDoes Represents an event triggered when a navigation is canceled.
  *
  * @stable
  */
 export class NavigationCancel {
-  constructor(public id: number, public url: string) {}
+  // TODO: vsavkin: make internal
+  constructor(
+      /** @docsNotRequired */
+      public id: number,
 
+      /** @docsNotRequired */
+      public url: string,
+
+      /** @docsNotRequired */
+      public reason: string) {}
+
+  /** @docsNotRequired */
   toString(): string { return `NavigationCancel(id: ${this.id}, url: '${this.url}')`; }
 }
 
 /**
- * An event triggered when a navigation fails due to unexpected error
+ * @whatItDoes Represents an event triggered when a navigation fails due to an unexpected error.
  *
  * @stable
  */
 export class NavigationError {
-  constructor(public id: number, public url: string, public error: any) {}
+  // TODO: vsavkin: make internal
+  constructor(
+      /** @docsNotRequired */
+      public id: number,
 
+      /** @docsNotRequired */
+      public url: string,
+
+      /** @docsNotRequired */
+      public error: any) {}
+
+  /** @docsNotRequired */
   toString(): string {
     return `NavigationError(id: ${this.id}, url: '${this.url}', error: ${this.error})`;
   }
 }
 
 /**
- * An event triggered when routes are recognized
+ * @whatItDoes Represents an event triggered when routes are recognized.
  *
  * @stable
  */
 export class RoutesRecognized {
+  // TODO: vsavkin: make internal
   constructor(
-      public id: number, public url: string, public urlAfterRedirects: string,
+      /** @docsNotRequired */
+      public id: number,
+
+      /** @docsNotRequired */
+      public url: string,
+      /** @docsNotRequired */
+      public urlAfterRedirects: string,
+      /** @docsNotRequired */
       public state: RouterStateSnapshot) {}
 
+  /** @docsNotRequired */
   toString(): string {
     return `RoutesRecognized(id: ${this.id}, url: '${this.url}', urlAfterRedirects: '${this.urlAfterRedirects}', state: ${this.state})`;
   }
 }
 
 /**
+ * @whatItDoes Represents a router event.
+ *
+ * Please see {@link NavigationStart}, {@link NavigationEnd}, {@link NavigationCancel}, {@link
+ * NavigationError},
+ * {@link RoutesRecognized} for more information.
+ *
  * @stable
  */
-export type Event = NavigationStart | NavigationEnd | NavigationCancel | NavigationError;
+export type Event =
+    NavigationStart | NavigationEnd | NavigationCancel | NavigationError | RoutesRecognized;
 
 /**
- * The `Router` is responsible for mapping URLs to components.
+ * @whatItDoes Error handler that is invoked when a navigation errors.
+ *
+ * @description
+ * If the handler returns a value, the navigation promise will be resolved with this value.
+ * If the handler throws an exception, the navigation promise will be rejected with
+ * the exception.
+ *
+ * @stable
+ */
+export type ErrorHandler = (error: any) => any;
+
+function defaultErrorHandler(error: any): any {
+  throw error;
+}
+
+/**
+ * @whatItDoes Provides the navigation and url manipulation capabilities.
  *
  * See {@link Routes} for more details and examples.
+ *
+ * @ngModule RouterModule
  *
  * @stable
  */
@@ -124,30 +288,68 @@ export class Router {
   private locationSubscription: Subscription;
   private routerEvents: Subject<Event>;
   private navigationId: number = 0;
-  private config: Routes;
   private configLoader: RouterConfigLoader;
+
+  /**
+   * Error handler that is invoked when a navigation errors.
+   *
+   * See {@link ErrorHandler} for more information.
+   */
+  errorHandler: ErrorHandler = defaultErrorHandler;
+
+  /**
+   * Indicates if at least one navigation happened.
+   */
+  navigated: boolean = false;
 
   /**
    * Creates the router service.
    */
+  // TODO: vsavkin make internal after the final is out.
   constructor(
-      private rootComponentType: Type, private resolver: ComponentResolver,
-      private urlSerializer: UrlSerializer, private outletMap: RouterOutletMap,
-      private location: Location, private injector: Injector, loader: AppModuleFactoryLoader,
-      config: Routes) {
+      private rootComponentType: Type<any>, private urlSerializer: UrlSerializer,
+      private outletMap: RouterOutletMap, private location: Location, private injector: Injector,
+      loader: NgModuleFactoryLoader, compiler: Compiler, public config: Routes) {
     this.resetConfig(config);
     this.routerEvents = new Subject<Event>();
     this.currentUrlTree = createEmptyUrlTree();
-    this.configLoader = new RouterConfigLoader(loader);
+    this.configLoader = new RouterConfigLoader(loader, compiler);
     this.currentRouterState = createEmptyState(this.currentUrlTree, this.rootComponentType);
   }
 
   /**
-   * Sets up the location change listener and performs the inital navigation
+   * @internal
+   * TODO: this should be removed once the constructor of the router made internal
+   */
+  resetRootComponentType(rootComponentType: Type<any>): void {
+    this.rootComponentType = rootComponentType;
+    // TODO: vsavkin router 4.0 should make the root component set to null
+    // this will simplify the lifecycle of the router.
+    this.currentRouterState.root.component = this.rootComponentType;
+  }
+
+  /**
+   * Sets up the location change listener and performs the initial navigation.
    */
   initialNavigation(): void {
     this.setUpLocationChangeListener();
-    this.navigateByUrl(this.location.path(true));
+    this.navigateByUrl(this.location.path(true), {replaceUrl: true});
+  }
+
+  /**
+   * Sets up the location change listener.
+   */
+  setUpLocationChangeListener(): void {
+    // Zone.current.wrap is needed because of the issue with RxJS scheduler,
+    // which does not work properly with zone.js in IE and Safari
+    this.locationSubscription = <any>this.location.subscribe(Zone.current.wrap((change: any) => {
+      const tree = this.urlSerializer.parse(change['url']);
+      // we fire multiple events for a single URL change
+      // we should navigate only once
+      return this.currentUrlTree.toString() !== tree.toString() ?
+          this.scheduleNavigation(tree, {skipLocationChange: change['pop'], replaceUrl: true}) :
+          null;
+    }));
   }
 
   /**
@@ -185,13 +387,17 @@ export class Router {
   }
 
   /**
+   * @docsNotRequired
+   */
+  ngOnDestroy() { this.dispose(); }
+
+  /**
    * Disposes of the router.
    */
   dispose(): void { this.locationSubscription.unsubscribe(); }
 
   /**
-   * Applies an array of commands to the current url tree and creates
-   * a new url tree.
+   * Applies an array of commands to the current url tree and creates a new url tree.
    *
    * When given an activate route, applies the given commands starting from the route.
    * When not given a route, applies the given command starting from the root.
@@ -205,11 +411,19 @@ export class Router {
    * // create /team/33;expand=true/user/11
    * router.createUrlTree(['/team', 33, {expand: true}, 'user', 11]);
    *
-   * // you can collapse static fragments like this
+   * // you can collapse static segments like this (this works only with the first passed-in value):
    * router.createUrlTree(['/team/33/user', userId]);
    *
-   * // create /team/33/(user/11//aux:chat)
-   * router.createUrlTree(['/team', 33, {outlets: {"": 'user/11', right: 'chat'}}]);
+   * // If the first segment can contain slashes, and you do not want the router to split it, you
+   * // can do the following:
+   *
+   * router.createUrlTree([{segmentPath: '/one/two'}]);
+   *
+   * // create /team/33/(user/11//right:chat)
+   * router.createUrlTree(['/team', 33, {outlets: {primary: 'user/11', right: 'chat'}}]);
+   *
+   * // remove the right secondary node
+   * router.createUrlTree(['/team', 33, {outlets: {primary: 'user/11', right: null}}]);
    *
    * // assuming the current url is `/team/33/user/11` and the route points to `user/11`
    *
@@ -223,10 +437,13 @@ export class Router {
    * router.createUrlTree(['../../team/44/user/22'], {relativeTo: route});
    * ```
    */
-  createUrlTree(commands: any[], {relativeTo, queryParams, fragment}: NavigationExtras = {}):
-      UrlTree {
+  createUrlTree(
+      commands: any[], {relativeTo, queryParams, fragment, preserveQueryParams,
+                        preserveFragment}: NavigationExtras = {}): UrlTree {
     const a = relativeTo ? relativeTo : this.routerState.root;
-    return createUrlTree(a, this.currentUrlTree, commands, queryParams, fragment);
+    const q = preserveQueryParams ? this.currentUrlTree.queryParams : queryParams;
+    const f = preserveFragment ? this.currentUrlTree.fragment : fragment;
+    return createUrlTree(a, this.currentUrlTree, commands, q, f);
   }
 
   /**
@@ -241,14 +458,21 @@ export class Router {
    *
    * ```
    * router.navigateByUrl("/team/33/user/11");
+   *
+   * // Navigate without updating the URL
+   * router.navigateByUrl("/team/33/user/11", { skipLocationChange: true });
    * ```
+   *
+   * In opposite to `navigate`, `navigateByUrl` takes a whole URL
+   * and does not apply any delta to the current one.
    */
-  navigateByUrl(url: string|UrlTree): Promise<boolean> {
+  navigateByUrl(url: string|UrlTree, extras: NavigationExtras = {skipLocationChange: false}):
+      Promise<boolean> {
     if (url instanceof UrlTree) {
-      return this.scheduleNavigation(url, false);
+      return this.scheduleNavigation(url, extras);
     } else {
       const urlTree = this.urlSerializer.parse(url);
-      return this.scheduleNavigation(urlTree, false);
+      return this.scheduleNavigation(urlTree, extras);
     }
   }
 
@@ -264,11 +488,18 @@ export class Router {
    * ### Usage
    *
    * ```
-   * router.navigate(['team', 33, 'team', '11], {relativeTo: route});
+   * router.navigate(['team', 33, 'user', 11], {relativeTo: route});
+   *
+   * // Navigate without updating the URL
+   * router.navigate(['team', 33, 'user', 11], {relativeTo: route, skipLocationChange: true });
    * ```
+   *
+   * In opposite to `navigateByUrl`, `navigate` always takes a delta
+   * that is applied to the current URL.
    */
-  navigate(commands: any[], extras: NavigationExtras = {}): Promise<boolean> {
-    return this.scheduleNavigation(this.createUrlTree(commands, extras), false);
+  navigate(commands: any[], extras: NavigationExtras = {skipLocationChange: false}):
+      Promise<boolean> {
+    return this.scheduleNavigation(this.createUrlTree(commands, extras), extras);
   }
 
   /**
@@ -277,31 +508,37 @@ export class Router {
   serializeUrl(url: UrlTree): string { return this.urlSerializer.serialize(url); }
 
   /**
-   * Parse a string into a {@link UrlTree}.
+   * Parses a string into a {@link UrlTree}.
    */
   parseUrl(url: string): UrlTree { return this.urlSerializer.parse(url); }
 
-  private scheduleNavigation(url: UrlTree, preventPushState: boolean): Promise<boolean> {
+  /**
+   * Returns if the url is activated or not.
+   */
+  isActive(url: string|UrlTree, exact: boolean): boolean {
+    if (url instanceof UrlTree) {
+      return containsTree(this.currentUrlTree, url, exact);
+    } else {
+      const urlTree = this.urlSerializer.parse(url);
+      return containsTree(this.currentUrlTree, urlTree, exact);
+    }
+  }
+
+  private scheduleNavigation(url: UrlTree, extras: NavigationExtras): Promise<boolean> {
     const id = ++this.navigationId;
     this.routerEvents.next(new NavigationStart(id, this.serializeUrl(url)));
-    return Promise.resolve().then((_) => this.runNavigate(url, preventPushState, id));
+    return Promise.resolve().then(
+        (_) => this.runNavigate(url, extras.skipLocationChange, extras.replaceUrl, id));
   }
 
-  private setUpLocationChangeListener(): void {
-    this.locationSubscription = <any>this.location.subscribe((change) => {
-      const tree = this.urlSerializer.parse(change['url']);
-      // we fire multiple events for a single URL change
-      // we should navigate only once
-      return this.currentUrlTree.toString() !== tree.toString() ?
-          this.scheduleNavigation(tree, change['pop']) :
-          null;
-    });
-  }
-
-  private runNavigate(url: UrlTree, preventPushState: boolean, id: number): Promise<boolean> {
+  private runNavigate(
+      url: UrlTree, shouldPreventPushState: boolean, shouldReplaceUrl: boolean,
+      id: number): Promise<boolean> {
     if (id !== this.navigationId) {
       this.location.go(this.urlSerializer.serialize(this.currentUrlTree));
-      this.routerEvents.next(new NavigationCancel(id, this.serializeUrl(url)));
+      this.routerEvents.next(new NavigationCancel(
+          id, this.serializeUrl(url),
+          `Navigation ID ${id} is not equal to the current navigation id ${this.navigationId}`));
       return Promise.resolve(false);
     }
 
@@ -315,44 +552,45 @@ export class Router {
       const storedState = this.currentRouterState;
       const storedUrl = this.currentUrlTree;
 
-      applyRedirects(this.injector, this.configLoader, url, this.config)
-          .mergeMap(u => {
-            appliedUrl = u;
-            return recognize(
-                this.rootComponentType, this.config, appliedUrl, this.serializeUrl(appliedUrl));
-          })
+      const redirectsApplied$ = applyRedirects(this.injector, this.configLoader, url, this.config);
 
-          .mergeMap((newRouterStateSnapshot) => {
-            this.routerEvents.next(new RoutesRecognized(
-                id, this.serializeUrl(url), this.serializeUrl(appliedUrl), newRouterStateSnapshot));
-            return resolve(this.resolver, newRouterStateSnapshot);
+      const snapshot$ = mergeMap.call(redirectsApplied$, (u: UrlTree) => {
+        appliedUrl = u;
+        return recognize(
+            this.rootComponentType, this.config, appliedUrl, this.serializeUrl(appliedUrl));
+      });
 
-          })
-          .map((routerStateSnapshot) => {
-            return createRouterState(routerStateSnapshot, this.currentRouterState);
+      const emitRecognzied$ = map.call(snapshot$, (newRouterStateSnapshot: RouterStateSnapshot) => {
+        this.routerEvents.next(new RoutesRecognized(
+            id, this.serializeUrl(url), this.serializeUrl(appliedUrl), newRouterStateSnapshot));
+        return newRouterStateSnapshot;
+      });
 
-          })
-          .map((newState: RouterState) => {
-            state = newState;
-            preActivation =
-                new PreActivation(state.snapshot, this.currentRouterState.snapshot, this.injector);
-            preActivation.traverse(this.outletMap);
-          })
-          .mergeMap(_ => {
-            return preActivation.checkGuards();
+      const routerState$ = map.call(emitRecognzied$, (routerStateSnapshot: RouterStateSnapshot) => {
+        return createRouterState(routerStateSnapshot, this.currentRouterState);
+      });
 
-          })
-          .mergeMap(shouldActivate => {
-            if (shouldActivate) {
-              return preActivation.resolveData().map(() => shouldActivate);
-            } else {
-              return Observable.of(shouldActivate);
-            }
+      const preactivation$ = map.call(routerState$, (newState: RouterState) => {
+        state = newState;
+        preActivation =
+            new PreActivation(state.snapshot, this.currentRouterState.snapshot, this.injector);
+        preActivation.traverse(this.outletMap);
+      });
 
-          })
+      const preactivation2$ =
+          mergeMap.call(preactivation$, () => { return preActivation.checkGuards(); });
+
+      const resolveData$ = mergeMap.call(preactivation2$, (shouldActivate: boolean) => {
+        if (shouldActivate) {
+          return map.call(preActivation.resolveData(), () => shouldActivate);
+        } else {
+          return of (shouldActivate);
+        }
+      });
+
+      resolveData$
           .forEach((shouldActivate: boolean) => {
             if (!shouldActivate || id !== this.navigationId) {
-              this.routerEvents.next(new NavigationCancel(id, this.serializeUrl(url)));
               navigationIsSuccessful = false;
               return;
             }
@@ -360,29 +598,51 @@ export class Router {
             this.currentUrlTree = appliedUrl;
             this.currentRouterState = state;
 
-            new ActivateRoutes(state, storedState).activate(this.outletMap);
-
-            if (!preventPushState) {
+            if (!shouldPreventPushState) {
               let path = this.urlSerializer.serialize(appliedUrl);
-              if (this.location.isCurrentPathEqualTo(path)) {
+              if (this.location.isCurrentPathEqualTo(path) || shouldReplaceUrl) {
                 this.location.replaceState(path);
               } else {
                 this.location.go(path);
               }
             }
+
+            new ActivateRoutes(state, storedState).activate(this.outletMap);
+
             navigationIsSuccessful = true;
           })
           .then(
               () => {
-                this.routerEvents.next(
-                    new NavigationEnd(id, this.serializeUrl(url), this.serializeUrl(appliedUrl)));
-                resolvePromise(navigationIsSuccessful);
+                this.navigated = true;
+                if (navigationIsSuccessful) {
+                  this.routerEvents.next(
+                      new NavigationEnd(id, this.serializeUrl(url), this.serializeUrl(appliedUrl)));
+                  resolvePromise(true);
+                } else {
+                  this.routerEvents.next(new NavigationCancel(id, this.serializeUrl(url), ''));
+                  resolvePromise(false);
+                }
               },
-              e => {
-                this.currentRouterState = storedState;
-                this.currentUrlTree = storedUrl;
-                this.routerEvents.next(new NavigationError(id, this.serializeUrl(url), e));
-                rejectPromise(e);
+              (e: any) => {
+                if (e instanceof NavigationCancelingError) {
+                  this.navigated = true;
+                  this.routerEvents.next(
+                      new NavigationCancel(id, this.serializeUrl(url), e.message));
+                  resolvePromise(false);
+                } else {
+                  this.routerEvents.next(new NavigationError(id, this.serializeUrl(url), e));
+                  try {
+                    resolvePromise(this.errorHandler(e));
+                  } catch (ee) {
+                    rejectPromise(ee);
+                  }
+                }
+
+                if (id === this.navigationId) {
+                  this.currentRouterState = storedState;
+                  this.currentUrlTree = storedUrl;
+                  this.location.replaceState(this.serializeUrl(storedUrl));
+                }
               });
     });
   }
@@ -391,7 +651,6 @@ export class Router {
 
 class CanActivate {
   constructor(public path: ActivatedRouteSnapshot[]) {}
-
   get route(): ActivatedRouteSnapshot { return this.path[this.path.length - 1]; }
 }
 
@@ -400,7 +659,7 @@ class CanDeactivate {
 }
 
 
-class PreActivation {
+export class PreActivation {
   private checks: Array<CanActivate|CanDeactivate> = [];
   constructor(
       private future: RouterStateSnapshot, private curr: RouterStateSnapshot,
@@ -413,41 +672,42 @@ class PreActivation {
   }
 
   checkGuards(): Observable<boolean> {
-    if (this.checks.length === 0) return Observable.of(true);
-    return Observable.from(this.checks)
-        .map(s => {
-          if (s instanceof CanActivate) {
-            return andObservables(
-                Observable.from([this.runCanActivate(s.route), this.runCanActivateChild(s.path)]));
-          } else if (s instanceof CanDeactivate) {
-            // workaround https://github.com/Microsoft/TypeScript/issues/7271
-            const s2 = s as CanDeactivate;
-            return this.runCanDeactivate(s2.component, s2.route);
-          } else {
-            throw new Error('Cannot be reached');
-          }
-        })
-        .mergeAll()
-        .every(result => result === true);
+    if (this.checks.length === 0) return of (true);
+    const checks$ = from(this.checks);
+    const runningChecks$ = map.call(checks$, (s: any) => {
+      if (s instanceof CanActivate) {
+        return andObservables(
+            from([this.runCanActivateChild(s.path), this.runCanActivate(s.route)]));
+      } else if (s instanceof CanDeactivate) {
+        // workaround https://github.com/Microsoft/TypeScript/issues/7271
+        const s2 = s as CanDeactivate;
+        return this.runCanDeactivate(s2.component, s2.route);
+      } else {
+        throw new Error('Cannot be reached');
+      }
+    });
+    const mergedChecks$ = mergeAll.call(runningChecks$);
+    return every.call(mergedChecks$, (result: any) => result === true);
   }
 
   resolveData(): Observable<any> {
-    if (this.checks.length === 0) return Observable.of(null);
-    return Observable.from(this.checks)
-        .mergeMap(s => {
-          if (s instanceof CanActivate) {
-            return this.runResolve(s.route);
-          } else {
-            return Observable.of(null);
-          }
-        })
-        .reduce((_, __) => _);
+    if (this.checks.length === 0) return of (null);
+    const checks$ = from(this.checks);
+    const runningChecks$ = mergeMap.call(checks$, (s: any) => {
+      if (s instanceof CanActivate) {
+        return this.runResolve(s.route);
+      } else {
+        return of (null);
+      }
+    });
+    return reduce.call(runningChecks$, (_: any, __: any) => _);
   }
 
   private traverseChildRoutes(
       futureNode: TreeNode<ActivatedRouteSnapshot>, currNode: TreeNode<ActivatedRouteSnapshot>,
       outletMap: RouterOutletMap, futurePath: ActivatedRouteSnapshot[]): void {
     const prevChildren: {[key: string]: any} = nodeChildrenAsMap(currNode);
+
     futureNode.children.forEach(c => {
       this.traverseRoutes(c, prevChildren[c.value.outlet], outletMap, futurePath.concat([c.value]));
       delete prevChildren[c.value.outlet];
@@ -468,6 +728,9 @@ class PreActivation {
     if (curr && future._routeConfig === curr._routeConfig) {
       if (!shallowEqual(future.params, curr.params)) {
         this.checks.push(new CanDeactivate(outlet.component, curr), new CanActivate(futurePath));
+      } else {
+        // we need to set the data
+        future.data = curr.data;
       }
 
       // If we have a component, we need to go through an outlet.
@@ -520,9 +783,9 @@ class PreActivation {
 
   private runCanActivate(future: ActivatedRouteSnapshot): Observable<boolean> {
     const canActivate = future._routeConfig ? future._routeConfig.canActivate : null;
-    if (!canActivate || canActivate.length === 0) return Observable.of(true);
-    const obs = Observable.from(canActivate).map(c => {
-      const guard = this.getToken(c, future, this.future);
+    if (!canActivate || canActivate.length === 0) return of (true);
+    const obs = map.call(from(canActivate), (c: any) => {
+      const guard = this.getToken(c, future);
       if (guard.canActivate) {
         return wrapIntoObservable(guard.canActivate(future, this.future));
       } else {
@@ -540,9 +803,9 @@ class PreActivation {
                                        .map(p => this.extractCanActivateChild(p))
                                        .filter(_ => _ !== null);
 
-    return andObservables(Observable.from(canActivateChildGuards).map(d => {
-      const obs = Observable.from(d.guards).map(c => {
-        const guard = this.getToken(c, c.node, this.future);
+    return andObservables(map.call(from(canActivateChildGuards), (d: any) => {
+      const obs = map.call(from(d.guards), (c: any) => {
+        const guard = this.getToken(c, c.node);
         if (guard.canActivateChild) {
           return wrapIntoObservable(guard.canActivateChild(future, this.future));
         } else {
@@ -562,23 +825,22 @@ class PreActivation {
 
   private runCanDeactivate(component: Object, curr: ActivatedRouteSnapshot): Observable<boolean> {
     const canDeactivate = curr && curr._routeConfig ? curr._routeConfig.canDeactivate : null;
-    if (!canDeactivate || canDeactivate.length === 0) return Observable.of(true);
-    return Observable.from(canDeactivate)
-        .map(c => {
-          const guard = this.getToken(c, curr, this.curr);
-          if (guard.canDeactivate) {
-            return wrapIntoObservable(guard.canDeactivate(component, curr, this.curr));
-          } else {
-            return wrapIntoObservable(guard(component, curr, this.curr));
-          }
-        })
-        .mergeAll()
-        .every(result => result === true);
+    if (!canDeactivate || canDeactivate.length === 0) return of (true);
+    const canDeactivate$ = map.call(from(canDeactivate), (c: any) => {
+      const guard = this.getToken(c, curr);
+      if (guard.canDeactivate) {
+        return wrapIntoObservable(guard.canDeactivate(component, curr, this.curr));
+      } else {
+        return wrapIntoObservable(guard(component, curr, this.curr));
+      }
+    });
+    const merged$ = mergeAll.call(canDeactivate$);
+    return every.call(merged$, (result: any) => result === true);
   }
 
   private runResolve(future: ActivatedRouteSnapshot): Observable<any> {
     const resolve = future._resolve;
-    return this.resolveNode(resolve.current, future).map(resolvedData => {
+    return map.call(this.resolveNode(resolve.current, future), (resolvedData: any): any => {
       resolve.resolvedData = resolvedData;
       future.data = merge(future.data, resolve.flattenedResolvedData);
       return null;
@@ -587,26 +849,16 @@ class PreActivation {
 
   private resolveNode(resolve: ResolveData, future: ActivatedRouteSnapshot): Observable<any> {
     return waitForMap(resolve, (k, v) => {
-      const resolver = this.getToken(v, future, this.future);
+      const resolver = this.getToken(v, future);
       return resolver.resolve ? wrapIntoObservable(resolver.resolve(future, this.future)) :
                                 wrapIntoObservable(resolver(future, this.future));
     });
   }
 
-  private getToken(token: any, snapshot: ActivatedRouteSnapshot, state: RouterStateSnapshot): any {
-    const config = closestLoadedConfig(state, snapshot);
+  private getToken(token: any, snapshot: ActivatedRouteSnapshot): any {
+    const config = closestLoadedConfig(snapshot);
     const injector = config ? config.injector : this.injector;
     return injector.get(token);
-  }
-}
-
-function wrapIntoObservable<T>(value: T | Observable<T>): Observable<T> {
-  if (value instanceof Observable) {
-    return value;
-  } else if (value instanceof Promise) {
-    return Observable.fromPromise(value);
-  } else {
-    return Observable.of(value);
   }
 }
 
@@ -616,7 +868,6 @@ class ActivateRoutes {
   activate(parentOutletMap: RouterOutletMap): void {
     const futureRoot = this.futureState._root;
     const currRoot = this.currState ? this.currState._root : null;
-    pushQueryParamsAndFragment(this.futureState);
     advanceActivatedRoute(this.futureState.root);
     this.activateChildRoutes(futureRoot, currRoot, parentOutletMap);
   }
@@ -691,16 +942,19 @@ class ActivateRoutes {
       useValue: outletMap
     }];
 
-    const config = closestLoadedConfig(this.futureState.snapshot, future.snapshot);
+    const config = parentLoadedConfig(future.snapshot);
+
     let loadedFactoryResolver: ComponentFactoryResolver = null;
+    let loadedInjector: Injector = null;
 
     if (config) {
-      const loadedResolver = config.factoryResolver;
-      loadedFactoryResolver = loadedResolver;
-      resolved.push({provide: ComponentFactoryResolver, useValue: loadedResolver});
-    };
-
-    outlet.activate(future, loadedFactoryResolver, ReflectiveInjector.resolve(resolved), outletMap);
+      loadedFactoryResolver = config.factoryResolver;
+      loadedInjector = config.injector;
+      resolved.push({provide: ComponentFactoryResolver, useValue: loadedFactoryResolver});
+    }
+    outlet.activate(
+        future, loadedFactoryResolver, loadedInjector, ReflectiveInjector.resolve(resolved),
+        outletMap);
   }
 
   private deactivateOutletAndItChildren(outlet: RouterOutlet): void {
@@ -715,27 +969,27 @@ class ActivateRoutes {
   }
 }
 
-function closestLoadedConfig(
-    state: RouterStateSnapshot, snapshot: ActivatedRouteSnapshot): LoadedRouterConfig {
-  const b = state.pathFromRoot(snapshot).filter(s => {
-    const config = (<any>s)._routeConfig;
-    return config && config._loadedConfig && s !== snapshot;
-  });
-  return b.length > 0 ? (<any>b[b.length - 1])._routeConfig._loadedConfig : null;
+function parentLoadedConfig(snapshot: ActivatedRouteSnapshot): LoadedRouterConfig {
+  let s = snapshot.parent;
+  while (s) {
+    const c: any = s._routeConfig;
+    if (c && c._loadedConfig) return c._loadedConfig;
+    if (c && c.component) return null;
+    s = s.parent;
+  }
+  return null;
 }
 
-function andObservables(observables: Observable<Observable<any>>): Observable<boolean> {
-  return observables.mergeAll().every(result => result === true);
-}
+function closestLoadedConfig(snapshot: ActivatedRouteSnapshot): LoadedRouterConfig {
+  if (!snapshot) return null;
 
-function pushQueryParamsAndFragment(state: RouterState): void {
-  if (!shallowEqual(state.snapshot.queryParams, (<any>state.queryParams).value)) {
-    (<any>state.queryParams).next(state.snapshot.queryParams);
+  let s = snapshot.parent;
+  while (s) {
+    const c: any = s._routeConfig;
+    if (c && c._loadedConfig) return c._loadedConfig;
+    s = s.parent;
   }
-
-  if (state.snapshot.fragment !== (<any>state.fragment).value) {
-    (<any>state.fragment).next(state.snapshot.fragment);
-  }
+  return null;
 }
 
 function nodeChildrenAsMap(node: TreeNode<any>) {

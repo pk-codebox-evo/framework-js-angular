@@ -9,24 +9,22 @@
 import {APP_ID} from '../application_tokens';
 import {devModeEqual} from '../change_detection/change_detection';
 import {UNINITIALIZED} from '../change_detection/change_detection_util';
-import {Inject, Injectable} from '../di/decorators';
-import {ListWrapper} from '../facade/collection';
-import {BaseException} from '../facade/exceptions';
-import {isBlank, isPresent, looseIdentical} from '../facade/lang';
+import {Inject, Injectable} from '../di';
+import {isPresent, looseIdentical} from '../facade/lang';
 import {ViewEncapsulation} from '../metadata/view';
 import {RenderComponentType, Renderer, RootRenderer} from '../render/api';
-import {SanitizationService} from '../security';
+import {Sanitizer} from '../security';
 import {AppElement} from './element';
-import {ExpressionChangedAfterItHasBeenCheckedException} from './exceptions';
+import {ExpressionChangedAfterItHasBeenCheckedError} from './errors';
 
 @Injectable()
 export class ViewUtils {
-  sanitizer: SanitizationService;
+  sanitizer: Sanitizer;
   private _nextCompTypeId: number = 0;
 
   constructor(
       private _renderer: RootRenderer, @Inject(APP_ID) private _appId: string,
-      sanitizer: SanitizationService) {
+      sanitizer: Sanitizer) {
     this.sanitizer = sanitizer;
   }
 
@@ -70,15 +68,15 @@ function _flattenNestedViewRenderNodes(nodes: any[], renderNodes: any[]): any[] 
   return renderNodes;
 }
 
-const EMPTY_ARR: any[] = /*@ts2dart_const*/[];
+const EMPTY_ARR: any[] = [];
 
 export function ensureSlotCount(projectableNodes: any[][], expectedSlotCount: number): any[][] {
   var res: any[][];
-  if (isBlank(projectableNodes)) {
+  if (!projectableNodes) {
     res = EMPTY_ARR;
   } else if (projectableNodes.length < expectedSlotCount) {
     var givenSlotCount = projectableNodes.length;
-    res = ListWrapper.createFixedSize(expectedSlotCount);
+    res = new Array(expectedSlotCount);
     for (var i = 0; i < expectedSlotCount; i++) {
       res[i] = (i < givenSlotCount) ? projectableNodes[i] : EMPTY_ARR;
     }
@@ -124,7 +122,7 @@ export function interpolate(
           c3 + _toStringWithNull(a4) + c4 + _toStringWithNull(a5) + c5 + _toStringWithNull(a6) +
           c6 + _toStringWithNull(a7) + c7 + _toStringWithNull(a8) + c8 + _toStringWithNull(a9) + c9;
     default:
-      throw new BaseException(`Does not support more than 9 expressions`);
+      throw new Error(`Does not support more than 9 expressions`);
   }
 }
 
@@ -135,7 +133,7 @@ function _toStringWithNull(v: any): string {
 export function checkBinding(throwOnChange: boolean, oldValue: any, newValue: any): boolean {
   if (throwOnChange) {
     if (!devModeEqual(oldValue, newValue)) {
-      throw new ExpressionChangedAfterItHasBeenCheckedException(oldValue, newValue, null);
+      throw new ExpressionChangedAfterItHasBeenCheckedError(oldValue, newValue);
     }
     return false;
   } else {

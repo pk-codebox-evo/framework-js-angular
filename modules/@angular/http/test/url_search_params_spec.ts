@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {beforeEach, ddescribe, describe, expect, iit, inject, it, xit} from '@angular/core/testing/testing_internal';
+import {describe, expect, it} from '@angular/core/testing/testing_internal';
 import {URLSearchParams} from '../src/url_search_params';
 
 export function main() {
@@ -68,11 +68,11 @@ export function main() {
        **/
 
       let params = new URLSearchParams();
-      '! $ \' ( ) * + , ; A 9 - . _ ~ ? /'.split(' ').forEach(
+      '! $ \' ( ) * + , ; A 9 - . _ ~ ? / ='.split(' ').forEach(
           (char, idx) => { params.set(`a${idx}`, char); });
       expect(params.toString())
           .toBe(
-              `a0=!&a1=$&a2=\'&a3=(&a4=)&a5=*&a6=+&a7=,&a8=;&a9=A&a10=9&a11=-&a12=.&a13=_&a14=~&a15=?&a16=/`
+              `a0=!&a1=$&a2=\'&a3=(&a4=)&a5=*&a6=+&a7=,&a8=;&a9=A&a10=9&a11=-&a12=.&a13=_&a14=~&a15=?&a16=/&a17==`
                   .replace(/\s/g, ''));
 
 
@@ -127,5 +127,45 @@ export function main() {
       expect(mapA.getAll('c')).toEqual(['8']);
       expect(mapA.toString()).toEqual('a=4&a=5&a=6&c=8&b=7');
     });
+
+    it('should support a clone operation via clone()', () => {
+      var fooQueryEncoder = {
+        encodeKey(k: string) { return encodeURIComponent(k); },
+        encodeValue(v: string) { return encodeURIComponent(v); }
+      };
+      var paramsA = new URLSearchParams('', fooQueryEncoder);
+      paramsA.set('a', '2');
+      paramsA.set('q', '4+');
+      paramsA.set('c', '8');
+      var paramsB = new URLSearchParams();
+      paramsB.set('a', '2');
+      paramsB.set('q', '4+');
+      paramsB.set('c', '8');
+      expect(paramsB.toString()).toEqual('a=2&q=4+&c=8');
+      var paramsC = paramsA.clone();
+      expect(paramsC.has('a')).toBe(true);
+      expect(paramsC.has('b')).toBe(false);
+      expect(paramsC.has('c')).toBe(true);
+      expect(paramsC.toString()).toEqual('a=2&q=4%2B&c=8');
+    });
+
+    it('should remove the parameter when set to undefined or null', () => {
+      const params = new URLSearchParams('q=Q');
+      params.set('q', undefined);
+      expect(params.has('q')).toBe(false);
+      expect(params.toString()).toEqual('');
+      params.set('q', null);
+      expect(params.has('q')).toBe(false);
+      expect(params.toString()).toEqual('');
+    });
+
+    it('should ignore the value when append undefined or null', () => {
+      const params = new URLSearchParams('q=Q');
+      params.append('q', undefined);
+      expect(params.toString()).toEqual('q=Q');
+      params.append('q', null);
+      expect(params.toString()).toEqual('q=Q');
+    });
+
   });
 }

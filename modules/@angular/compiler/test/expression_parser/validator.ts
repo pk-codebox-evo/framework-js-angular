@@ -1,4 +1,12 @@
-import {AST, Binary, BindingPipe, Chain, Conditional, EmptyExpr, FunctionCall, ImplicitReceiver, Interpolation, KeyedRead, KeyedWrite, LiteralArray, LiteralMap, LiteralPrimitive, MethodCall, ParseSpan, PrefixNot, PropertyRead, PropertyWrite, Quote, RecursiveAstVisitor, SafeMethodCall, SafePropertyRead} from '../../src/expression_parser/ast';
+/**
+ * @license
+ * Copyright Google Inc. All Rights Reserved.
+ *
+ * Use of this source code is governed by an MIT-style license that can be
+ * found in the LICENSE file at https://angular.io/license
+ */
+
+import {AST, Binary, BindingPipe, Chain, Conditional, FunctionCall, ImplicitReceiver, Interpolation, KeyedRead, KeyedWrite, LiteralArray, LiteralMap, LiteralPrimitive, MethodCall, ParseSpan, PrefixNot, PropertyRead, PropertyWrite, Quote, RecursiveAstVisitor, SafeMethodCall, SafePropertyRead} from '../../src/expression_parser/ast';
 
 import {unparse} from './unparser';
 
@@ -12,8 +20,13 @@ class ASTValidator extends RecursiveAstVisitor {
 
   validate(ast: AST, cb: () => void): void {
     if (!inSpan(ast.span, this.parentSpan)) {
-      throw Error(
-          `Invalid AST span [expected (${ast.span.start}, ${ast.span.end}) to be in (${this.parentSpan.start},  ${this.parentSpan.end}) for ${unparse(ast)}`);
+      if (this.parentSpan) {
+        let parentSpan = this.parentSpan as ParseSpan;
+        throw Error(
+            `Invalid AST span [expected (${ast.span.start}, ${ast.span.end}) to be in (${parentSpan.start},  ${parentSpan.end}) for ${unparse(ast)}`);
+      } else {
+        throw Error(`Invalid root AST span for ${unparse(ast)}`);
+      }
     }
     const oldParent = this.parentSpan;
     this.parentSpan = ast.span;

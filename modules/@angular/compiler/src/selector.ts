@@ -6,21 +6,16 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {ListWrapper} from '../src/facade/collection';
-import {BaseException} from '../src/facade/exceptions';
-import {RegExpMatcherWrapper, RegExpWrapper, StringWrapper, isBlank, isPresent} from '../src/facade/lang';
+import {getHtmlTagDefinition} from './ml_parser/html_tags';
 
-const _EMPTY_ATTR_VALUE = /*@ts2dart_const*/ '';
-
-// TODO: Can't use `const` here as
-// in Dart this is not transpiled into `final` yet...
-var _SELECTOR_REGEXP = RegExpWrapper.create(
-    '(\\:not\\()|' +                          //":not("
-    '([-\\w]+)|' +                            // "tag"
-    '(?:\\.([-\\w]+))|' +                     // ".class"
-    '(?:\\[([-\\w*]+)(?:=([^\\]]*))?\\])|' +  // "[name]", "[name=value]" or "[name*=value]"
-    '(\\))|' +                                // ")"
-    '(\\s*,\\s*)');                           // ","
+const _SELECTOR_REGEXP = new RegExp(
+    '(\\:not\\()|' +                              //":not("
+        '([-\\w]+)|' +                            // "tag"
+        '(?:\\.([-\\w]+))|' +                     // ".class"
+        '(?:\\[([-\\w*]+)(?:=([^\\]]*))?\\])|' +  // "[name]", "[name=value]"
+        '(\\))|' +                                // ")"
+        '(\\s*,\\s*)',                            // ","
+    'g');
 
 /**
  * A css selector contains an element name,
@@ -34,44 +29,44 @@ export class CssSelector {
   notSelectors: CssSelector[] = [];
 
   static parse(selector: string): CssSelector[] {
-    var results: CssSelector[] = [];
-    var _addResult = (res: CssSelector[], cssSel: CssSelector) => {
-      if (cssSel.notSelectors.length > 0 && isBlank(cssSel.element) &&
-          ListWrapper.isEmpty(cssSel.classNames) && ListWrapper.isEmpty(cssSel.attrs)) {
+    const results: CssSelector[] = [];
+    const _addResult = (res: CssSelector[], cssSel: CssSelector) => {
+      if (cssSel.notSelectors.length > 0 && !cssSel.element && cssSel.classNames.length == 0 &&
+          cssSel.attrs.length == 0) {
         cssSel.element = '*';
       }
       res.push(cssSel);
     };
-    var cssSelector = new CssSelector();
-    var matcher = RegExpWrapper.matcher(_SELECTOR_REGEXP, selector);
-    var match: string[];
-    var current = cssSelector;
-    var inNot = false;
-    while (isPresent(match = RegExpMatcherWrapper.next(matcher))) {
-      if (isPresent(match[1])) {
+    let cssSelector = new CssSelector();
+    let match: string[];
+    let current = cssSelector;
+    let inNot = false;
+    _SELECTOR_REGEXP.lastIndex = 0;
+    while (match = _SELECTOR_REGEXP.exec(selector)) {
+      if (match[1]) {
         if (inNot) {
-          throw new BaseException('Nesting :not is not allowed in a selector');
+          throw new Error('Nesting :not is not allowed in a selector');
         }
         inNot = true;
         current = new CssSelector();
         cssSelector.notSelectors.push(current);
       }
-      if (isPresent(match[2])) {
+      if (match[2]) {
         current.setElement(match[2]);
       }
-      if (isPresent(match[3])) {
+      if (match[3]) {
         current.addClassName(match[3]);
       }
-      if (isPresent(match[4])) {
+      if (match[4]) {
         current.addAttribute(match[4], match[5]);
       }
-      if (isPresent(match[6])) {
+      if (match[6]) {
         inNot = false;
         current = cssSelector;
       }
-      if (isPresent(match[7])) {
+      if (match[7]) {
         if (inNot) {
-          throw new BaseException('Multiple selectors in :not are not supported');
+          throw new Error('Multiple selectors in :not are not supported');
         }
         _addResult(results, cssSelector);
         cssSelector = current = new CssSelector();
@@ -82,58 +77,46 @@ export class CssSelector {
   }
 
   isElementSelector(): boolean {
-    return isPresent(this.element) && ListWrapper.isEmpty(this.classNames) &&
-        ListWrapper.isEmpty(this.attrs) && this.notSelectors.length === 0;
+    return this.hasElementSelector() && this.classNames.length == 0 && this.attrs.length == 0 &&
+        this.notSelectors.length === 0;
   }
+
+  hasElementSelector(): boolean { return !!this.element; }
 
   setElement(element: string = null) { this.element = element; }
 
   /** Gets a template string for an element that matches the selector. */
   getMatchingElementTemplate(): string {
-    let tagName = isPresent(this.element) ? this.element : 'div';
-    let classAttr = this.classNames.length > 0 ? ` class="${this.classNames.join(' ')}"` : '';
+    const tagName = this.element || 'div';
+    const classAttr = this.classNames.length > 0 ? ` class="${this.classNames.join(' ')}"` : '';
 
     let attrs = '';
     for (let i = 0; i < this.attrs.length; i += 2) {
-      let attrName = this.attrs[i];
-      let attrValue = this.attrs[i + 1] !== '' ? `="${this.attrs[i + 1]}"` : '';
+      const attrName = this.attrs[i];
+      const attrValue = this.attrs[i + 1] !== '' ? `="${this.attrs[i + 1]}"` : '';
       attrs += ` ${attrName}${attrValue}`;
     }
 
-    return `<${tagName}${classAttr}${attrs}></${tagName}>`;
+    return getHtmlTagDefinition(tagName).isVoid ? `<${tagName}${classAttr}${attrs}/>` :
+                                                  `<${tagName}${classAttr}${attrs}></${tagName}>`;
   }
 
-  addAttribute(name: string, value: string = _EMPTY_ATTR_VALUE) {
-    this.attrs.push(name);
-    if (isPresent(value)) {
-      value = value.toLowerCase();
-    } else {
-      value = _EMPTY_ATTR_VALUE;
-    }
-    this.attrs.push(value);
+  addAttribute(name: string, value: string = '') {
+    this.attrs.push(name, value && value.toLowerCase() || '');
   }
 
   addClassName(name: string) { this.classNames.push(name.toLowerCase()); }
 
   toString(): string {
-    var res = '';
-    if (isPresent(this.element)) {
-      res += this.element;
+    let res: string = this.element || '';
+    if (this.classNames) {
+      this.classNames.forEach(klass => res += `.${klass}`);
     }
-    if (isPresent(this.classNames)) {
-      for (var i = 0; i < this.classNames.length; i++) {
-        res += '.' + this.classNames[i];
-      }
-    }
-    if (isPresent(this.attrs)) {
-      for (var i = 0; i < this.attrs.length;) {
-        var attrName = this.attrs[i++];
-        var attrValue = this.attrs[i++];
-        res += '[' + attrName;
-        if (attrValue.length > 0) {
-          res += '=' + attrValue;
-        }
-        res += ']';
+    if (this.attrs) {
+      for (let i = 0; i < this.attrs.length; i += 2) {
+        const name = this.attrs[i];
+        const value = this.attrs[i + 1];
+        res += `[${name}${value ? '=' + value : ''}]`;
       }
     }
     this.notSelectors.forEach(notSelector => res += `:not(${notSelector})`);
@@ -147,26 +130,26 @@ export class CssSelector {
  */
 export class SelectorMatcher {
   static createNotMatcher(notSelectors: CssSelector[]): SelectorMatcher {
-    var notMatcher = new SelectorMatcher();
+    const notMatcher = new SelectorMatcher();
     notMatcher.addSelectables(notSelectors, null);
     return notMatcher;
   }
 
-  private _elementMap = new Map<string, SelectorContext[]>();
-  private _elementPartialMap = new Map<string, SelectorMatcher>();
-  private _classMap = new Map<string, SelectorContext[]>();
-  private _classPartialMap = new Map<string, SelectorMatcher>();
-  private _attrValueMap = new Map<string, Map<string, SelectorContext[]>>();
-  private _attrValuePartialMap = new Map<string, Map<string, SelectorMatcher>>();
+  private _elementMap: {[k: string]: SelectorContext[]} = {};
+  private _elementPartialMap: {[k: string]: SelectorMatcher} = {};
+  private _classMap: {[k: string]: SelectorContext[]} = {};
+  private _classPartialMap: {[k: string]: SelectorMatcher} = {};
+  private _attrValueMap: {[k: string]: {[k: string]: SelectorContext[]}} = {};
+  private _attrValuePartialMap: {[k: string]: {[k: string]: SelectorMatcher}} = {};
   private _listContexts: SelectorListContext[] = [];
 
   addSelectables(cssSelectors: CssSelector[], callbackCtxt?: any) {
-    var listContext: SelectorListContext = null;
+    let listContext: SelectorListContext = null;
     if (cssSelectors.length > 1) {
       listContext = new SelectorListContext(cssSelectors);
       this._listContexts.push(listContext);
     }
-    for (var i = 0; i < cssSelectors.length; i++) {
+    for (let i = 0; i < cssSelectors.length; i++) {
       this._addSelectable(cssSelectors[i], callbackCtxt, listContext);
     }
   }
@@ -178,14 +161,14 @@ export class SelectorMatcher {
    */
   private _addSelectable(
       cssSelector: CssSelector, callbackCtxt: any, listContext: SelectorListContext) {
-    var matcher: SelectorMatcher = this;
-    var element = cssSelector.element;
-    var classNames = cssSelector.classNames;
-    var attrs = cssSelector.attrs;
-    var selectable = new SelectorContext(cssSelector, callbackCtxt, listContext);
+    let matcher: SelectorMatcher = this;
+    const element = cssSelector.element;
+    const classNames = cssSelector.classNames;
+    const attrs = cssSelector.attrs;
+    const selectable = new SelectorContext(cssSelector, callbackCtxt, listContext);
 
-    if (isPresent(element)) {
-      var isTerminal = attrs.length === 0 && classNames.length === 0;
+    if (element) {
+      const isTerminal = attrs.length === 0 && classNames.length === 0;
       if (isTerminal) {
         this._addTerminal(matcher._elementMap, element, selectable);
       } else {
@@ -193,10 +176,10 @@ export class SelectorMatcher {
       }
     }
 
-    if (isPresent(classNames)) {
-      for (var index = 0; index < classNames.length; index++) {
-        var isTerminal = attrs.length === 0 && index === classNames.length - 1;
-        var className = classNames[index];
+    if (classNames) {
+      for (let i = 0; i < classNames.length; i++) {
+        const isTerminal = attrs.length === 0 && i === classNames.length - 1;
+        const className = classNames[i];
         if (isTerminal) {
           this._addTerminal(matcher._classMap, className, selectable);
         } else {
@@ -205,47 +188,47 @@ export class SelectorMatcher {
       }
     }
 
-    if (isPresent(attrs)) {
-      for (var index = 0; index < attrs.length;) {
-        var isTerminal = index === attrs.length - 2;
-        var attrName = attrs[index++];
-        var attrValue = attrs[index++];
+    if (attrs) {
+      for (let i = 0; i < attrs.length; i += 2) {
+        const isTerminal = i === attrs.length - 2;
+        const name = attrs[i];
+        const value = attrs[i + 1];
         if (isTerminal) {
-          var terminalMap = matcher._attrValueMap;
-          var terminalValuesMap = terminalMap.get(attrName);
-          if (isBlank(terminalValuesMap)) {
-            terminalValuesMap = new Map<string, SelectorContext[]>();
-            terminalMap.set(attrName, terminalValuesMap);
+          const terminalMap = matcher._attrValueMap;
+          let terminalValuesMap = terminalMap[name];
+          if (!terminalValuesMap) {
+            terminalValuesMap = {};
+            terminalMap[name] = terminalValuesMap;
           }
-          this._addTerminal(terminalValuesMap, attrValue, selectable);
+          this._addTerminal(terminalValuesMap, value, selectable);
         } else {
-          var parttialMap = matcher._attrValuePartialMap;
-          var partialValuesMap = parttialMap.get(attrName);
-          if (isBlank(partialValuesMap)) {
-            partialValuesMap = new Map<string, SelectorMatcher>();
-            parttialMap.set(attrName, partialValuesMap);
+          let partialMap = matcher._attrValuePartialMap;
+          let partialValuesMap = partialMap[name];
+          if (!partialValuesMap) {
+            partialValuesMap = {};
+            partialMap[name] = partialValuesMap;
           }
-          matcher = this._addPartial(partialValuesMap, attrValue);
+          matcher = this._addPartial(partialValuesMap, value);
         }
       }
     }
   }
 
   private _addTerminal(
-      map: Map<string, SelectorContext[]>, name: string, selectable: SelectorContext) {
-    var terminalList = map.get(name);
-    if (isBlank(terminalList)) {
+      map: {[k: string]: SelectorContext[]}, name: string, selectable: SelectorContext) {
+    let terminalList = map[name];
+    if (!terminalList) {
       terminalList = [];
-      map.set(name, terminalList);
+      map[name] = terminalList;
     }
     terminalList.push(selectable);
   }
 
-  private _addPartial(map: Map<string, SelectorMatcher>, name: string): SelectorMatcher {
-    var matcher = map.get(name);
-    if (isBlank(matcher)) {
+  private _addPartial(map: {[k: string]: SelectorMatcher}, name: string): SelectorMatcher {
+    let matcher = map[name];
+    if (!matcher) {
       matcher = new SelectorMatcher();
-      map.set(name, matcher);
+      map[name] = matcher;
     }
     return matcher;
   }
@@ -258,12 +241,12 @@ export class SelectorMatcher {
    * @return boolean true if a match was found
   */
   match(cssSelector: CssSelector, matchedCallback: (c: CssSelector, a: any) => void): boolean {
-    var result = false;
-    var element = cssSelector.element;
-    var classNames = cssSelector.classNames;
-    var attrs = cssSelector.attrs;
+    let result = false;
+    const element = cssSelector.element;
+    const classNames = cssSelector.classNames;
+    const attrs = cssSelector.attrs;
 
-    for (var i = 0; i < this._listContexts.length; i++) {
+    for (let i = 0; i < this._listContexts.length; i++) {
       this._listContexts[i].alreadyMatched = false;
     }
 
@@ -271,9 +254,9 @@ export class SelectorMatcher {
     result = this._matchPartial(this._elementPartialMap, element, cssSelector, matchedCallback) ||
         result;
 
-    if (isPresent(classNames)) {
-      for (var index = 0; index < classNames.length; index++) {
-        var className = classNames[index];
+    if (classNames) {
+      for (let i = 0; i < classNames.length; i++) {
+        const className = classNames[i];
         result =
             this._matchTerminal(this._classMap, className, cssSelector, matchedCallback) || result;
         result =
@@ -282,28 +265,25 @@ export class SelectorMatcher {
       }
     }
 
-    if (isPresent(attrs)) {
-      for (var index = 0; index < attrs.length;) {
-        var attrName = attrs[index++];
-        var attrValue = attrs[index++];
+    if (attrs) {
+      for (let i = 0; i < attrs.length; i += 2) {
+        const name = attrs[i];
+        const value = attrs[i + 1];
 
-        var terminalValuesMap = this._attrValueMap.get(attrName);
-        if (!StringWrapper.equals(attrValue, _EMPTY_ATTR_VALUE)) {
-          result = this._matchTerminal(
-                       terminalValuesMap, _EMPTY_ATTR_VALUE, cssSelector, matchedCallback) ||
-              result;
-        }
-        result = this._matchTerminal(terminalValuesMap, attrValue, cssSelector, matchedCallback) ||
-            result;
-
-        var partialValuesMap = this._attrValuePartialMap.get(attrName);
-        if (!StringWrapper.equals(attrValue, _EMPTY_ATTR_VALUE)) {
-          result = this._matchPartial(
-                       partialValuesMap, _EMPTY_ATTR_VALUE, cssSelector, matchedCallback) ||
-              result;
+        const terminalValuesMap = this._attrValueMap[name];
+        if (value) {
+          result =
+              this._matchTerminal(terminalValuesMap, '', cssSelector, matchedCallback) || result;
         }
         result =
-            this._matchPartial(partialValuesMap, attrValue, cssSelector, matchedCallback) || result;
+            this._matchTerminal(terminalValuesMap, value, cssSelector, matchedCallback) || result;
+
+        const partialValuesMap = this._attrValuePartialMap[name];
+        if (value) {
+          result = this._matchPartial(partialValuesMap, '', cssSelector, matchedCallback) || result;
+        }
+        result =
+            this._matchPartial(partialValuesMap, value, cssSelector, matchedCallback) || result;
       }
     }
     return result;
@@ -311,24 +291,24 @@ export class SelectorMatcher {
 
   /** @internal */
   _matchTerminal(
-      map: Map<string, SelectorContext[]>, name: string, cssSelector: CssSelector,
+      map: {[k: string]: SelectorContext[]}, name: string, cssSelector: CssSelector,
       matchedCallback: (c: CssSelector, a: any) => void): boolean {
-    if (isBlank(map) || isBlank(name)) {
+    if (!map || typeof name !== 'string') {
       return false;
     }
 
-    var selectables = map.get(name);
-    var starSelectables = map.get('*');
-    if (isPresent(starSelectables)) {
+    let selectables = map[name];
+    const starSelectables = map['*'];
+    if (starSelectables) {
       selectables = selectables.concat(starSelectables);
     }
-    if (isBlank(selectables)) {
+    if (!selectables) {
       return false;
     }
-    var selectable: SelectorContext;
-    var result = false;
-    for (var index = 0; index < selectables.length; index++) {
-      selectable = selectables[index];
+    let selectable: SelectorContext;
+    let result = false;
+    for (let i = 0; i < selectables.length; i++) {
+      selectable = selectables[i];
       result = selectable.finalize(cssSelector, matchedCallback) || result;
     }
     return result;
@@ -336,13 +316,14 @@ export class SelectorMatcher {
 
   /** @internal */
   _matchPartial(
-      map: Map<string, SelectorMatcher>, name: string, cssSelector: CssSelector,
+      map: {[k: string]: SelectorMatcher}, name: string, cssSelector: CssSelector,
       matchedCallback: (c: CssSelector, a: any) => void): boolean {
-    if (isBlank(map) || isBlank(name)) {
+    if (!map || typeof name !== 'string') {
       return false;
     }
-    var nestedSelector = map.get(name);
-    if (isBlank(nestedSelector)) {
+
+    const nestedSelector = map[name];
+    if (!nestedSelector) {
       return false;
     }
     // TODO(perf): get rid of recursion and measure again
@@ -370,15 +351,13 @@ export class SelectorContext {
   }
 
   finalize(cssSelector: CssSelector, callback: (c: CssSelector, a: any) => void): boolean {
-    var result = true;
-    if (this.notSelectors.length > 0 &&
-        (isBlank(this.listContext) || !this.listContext.alreadyMatched)) {
-      var notMatcher = SelectorMatcher.createNotMatcher(this.notSelectors);
+    let result = true;
+    if (this.notSelectors.length > 0 && (!this.listContext || !this.listContext.alreadyMatched)) {
+      const notMatcher = SelectorMatcher.createNotMatcher(this.notSelectors);
       result = !notMatcher.match(cssSelector, null);
     }
-    if (result && isPresent(callback) &&
-        (isBlank(this.listContext) || !this.listContext.alreadyMatched)) {
-      if (isPresent(this.listContext)) {
+    if (result && callback && (!this.listContext || !this.listContext.alreadyMatched)) {
+      if (this.listContext) {
         this.listContext.alreadyMatched = true;
       }
       callback(this.selector, this.cbContext);

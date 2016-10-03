@@ -6,9 +6,9 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {AnimationPlayer, NoOpAnimationPlayer} from '../../src/animation/animation_player';
+import {NoOpAnimationPlayer} from '../../src/animation/animation_player';
 import {fakeAsync, flushMicrotasks} from '../../testing';
-import {AsyncTestCompleter, beforeEach, ddescribe, describe, expect, iit, inject, it, xdescribe, xit} from '../../testing/testing_internal';
+import {describe, expect, it} from '../../testing/testing_internal';
 
 export function main() {
   describe('NoOpAnimationPlayer', function() {
@@ -28,6 +28,18 @@ export function main() {
          player.finish();
          player.restart();
          player.destroy();
+       }));
+
+    it('should run the onStart method when started but only once', fakeAsync(() => {
+         var player = new NoOpAnimationPlayer();
+         var calls = 0;
+         player.onStart(() => calls++);
+         expect(calls).toEqual(0);
+         player.play();
+         expect(calls).toEqual(1);
+         player.pause();
+         player.play();
+         expect(calls).toEqual(1);
        }));
   });
 }

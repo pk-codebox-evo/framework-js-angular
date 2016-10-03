@@ -6,14 +6,14 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {AsyncTestCompleter, beforeEach, beforeEachProviders, ddescribe, describe, expect, iit, inject, it, xdescribe, xit} from '@angular/core/testing/testing_internal';
+import {beforeEach, describe, expect, it} from '@angular/core/testing/testing_internal';
 import {el} from '@angular/platform-browser/testing/browser_util';
 
-import {AnimationKeyframe, AnimationStyles} from '../../core_private';
 import {DomAnimatePlayer} from '../../src/dom/dom_animate_player';
 import {WebAnimationsDriver} from '../../src/dom/web_animations_driver';
 import {WebAnimationsPlayer} from '../../src/dom/web_animations_player';
 import {StringMapWrapper} from '../../src/facade/collection';
+import {AnimationKeyframe, AnimationStyles} from '../../src/private_import_core';
 import {MockDomAnimatePlayer} from '../../testing/mock_dom_animate_player';
 
 class ExtendedWebAnimationsDriver extends WebAnimationsDriver {
@@ -21,6 +21,7 @@ class ExtendedWebAnimationsDriver extends WebAnimationsDriver {
 
   constructor() { super(); }
 
+  /** @internal */
   _triggerWebAnimation(elm: any, keyframes: any[], options: any): DomAnimatePlayer {
     this.log.push({'elm': elm, 'keyframes': keyframes, 'options': options});
     return new MockDomAnimatePlayer();

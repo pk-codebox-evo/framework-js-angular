@@ -6,14 +6,11 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {getSymbolIterator, global, isArray, isBlank, isJsObject, isPresent} from './lang';
-
-export var Map = global.Map;
-export var Set = global.Set;
+import {getSymbolIterator, isArray, isBlank, isJsObject, isPresent} from './lang';
 
 // Safari and Internet Explorer do not support the iterable parameter to the
 // Map constructor.  We work around that by manually adding the items.
-var createMapFromPairs: {(pairs: any[]): Map<any, any>} = (function() {
+const createMapFromPairs: {(pairs: any[]): Map<any, any>} = (function() {
   try {
     if (new Map(<any>[[1, 2]]).size === 1) {
       return function createMapFromPairs(pairs: any[]): Map<any, any> { return new Map(pairs); };
@@ -29,7 +26,7 @@ var createMapFromPairs: {(pairs: any[]): Map<any, any>} = (function() {
     return map;
   };
 })();
-var createMapFromMap: {(m: Map<any, any>): Map<any, any>} = (function() {
+const createMapFromMap: {(m: Map<any, any>): Map<any, any>} = (function() {
   try {
     if (new Map(<any>new Map())) {
       return function createMapFromMap(m: Map<any, any>): Map<any, any> { return new Map(<any>m); };
@@ -42,7 +39,7 @@ var createMapFromMap: {(m: Map<any, any>): Map<any, any>} = (function() {
     return map;
   };
 })();
-var _clearValues: {(m: Map<any, any>): void} = (function() {
+const _clearValues: {(m: Map<any, any>): void} = (function() {
   if ((<any>(new Map()).keys()).next) {
     return function _clearValues(m: Map<any, any>) {
       var keyIterator = m.keys();
@@ -69,7 +66,7 @@ var _arrayFromMap: {(m: Map<any, any>, getValues: boolean): any[]} = (function()
   } catch (e) {
   }
   return function createArrayFromMapWithForeach(m: Map<any, any>, getValues: boolean): any[] {
-    var res = ListWrapper.createFixedSize(m.size), i = 0;
+    var res = new Array(m.size), i = 0;
     m.forEach((v, k) => {
       res[i] = getValues ? v : k;
       i++;
@@ -79,7 +76,6 @@ var _arrayFromMap: {(m: Map<any, any>, getValues: boolean): any[]} = (function()
 })();
 
 export class MapWrapper {
-  static clone<K, V>(m: Map<K, V>): Map<K, V> { return createMapFromMap(m); }
   static createFromStringMap<T>(stringMap: {[key: string]: T}): Map<string, T> {
     var result = new Map<string, T>();
     for (var prop in stringMap) {
@@ -93,7 +89,6 @@ export class MapWrapper {
     return r;
   }
   static createFromPairs(pairs: any[]): Map<any, any> { return createMapFromPairs(pairs); }
-  static clearValues(m: Map<any, any>) { _clearValues(m); }
   static iterable<T>(m: T): T { return m; }
   static keys<K>(m: Map<K, any>): K[] { return _arrayFromMap(m, false); }
   static values<V>(m: Map<any, V>): V[] { return _arrayFromMap(m, true); }
@@ -112,16 +107,10 @@ export class StringMapWrapper {
   static contains(map: {[key: string]: any}, key: string): boolean {
     return map.hasOwnProperty(key);
   }
-  static get<V>(map: {[key: string]: V}, key: string): V {
-    return map.hasOwnProperty(key) ? map[key] : undefined;
-  }
-  static set<V>(map: {[key: string]: V}, key: string, value: V) { map[key] = value; }
+
   static keys(map: {[key: string]: any}): string[] { return Object.keys(map); }
   static values<T>(map: {[key: string]: T}): T[] {
-    return Object.keys(map).reduce((r, a) => {
-      r.push(map[a]);
-      return r;
-    }, []);
+    return Object.keys(map).map((k: string): T => map[k]);
   }
   static isEmpty(map: {[key: string]: any}): boolean {
     for (var prop in map) {
@@ -129,46 +118,41 @@ export class StringMapWrapper {
     }
     return true;
   }
-  static delete (map: {[key: string]: any}, key: string) { delete map[key]; }
-  static forEach<K, V>(map: {[key: string]: V}, callback: /*(V, K) => void*/ Function) {
-    for (var prop in map) {
-      if (map.hasOwnProperty(prop)) {
-        callback(map[prop], prop);
-      }
+  static forEach<K, V>(map: {[key: string]: V}, callback: (v: V, K: string) => void) {
+    for (let k of Object.keys(map)) {
+      callback(map[k], k);
     }
   }
 
   static merge<V>(m1: {[key: string]: V}, m2: {[key: string]: V}): {[key: string]: V} {
     var m: {[key: string]: V} = {};
 
-    for (var attr in m1) {
-      if (m1.hasOwnProperty(attr)) {
-        m[attr] = m1[attr];
-      }
+    for (let k of Object.keys(m1)) {
+      m[k] = m1[k];
     }
 
-    for (var attr in m2) {
-      if (m2.hasOwnProperty(attr)) {
-        m[attr] = m2[attr];
-      }
+    for (let k of Object.keys(m2)) {
+      m[k] = m2[k];
     }
 
     return m;
   }
 
   static equals<V>(m1: {[key: string]: V}, m2: {[key: string]: V}): boolean {
-    var k1 = Object.keys(m1);
-    var k2 = Object.keys(m2);
+    const k1 = Object.keys(m1);
+    const k2 = Object.keys(m2);
+
     if (k1.length != k2.length) {
       return false;
     }
-    var key: any /** TODO #???? */;
-    for (var i = 0; i < k1.length; i++) {
-      key = k1[i];
+
+    for (let i = 0; i < k1.length; i++) {
+      const key = k1[i];
       if (m1[key] !== m2[key]) {
         return false;
       }
     }
+
     return true;
   }
 }
@@ -333,28 +317,4 @@ export function iterateListLike(obj: any, fn: Function) {
       fn(item.value);
     }
   }
-}
-
-// Safari and Internet Explorer do not support the iterable parameter to the
-// Set constructor.  We work around that by manually adding the items.
-var createSetFromList: {(lst: any[]): Set<any>} = (function() {
-  var test = new Set([1, 2, 3]);
-  if (test.size === 3) {
-    return function createSetFromList(lst: any[]): Set<any> { return new Set(lst); };
-  } else {
-    return function createSetAndPopulateFromList(lst: any[]): Set<any> {
-      var res = new Set(lst);
-      if (res.size !== lst.length) {
-        for (var i = 0; i < lst.length; i++) {
-          res.add(lst[i]);
-        }
-      }
-      return res;
-    };
-  }
-})();
-export class SetWrapper {
-  static createFromList<T>(lst: T[]): Set<T> { return createSetFromList(lst); }
-  static has<T>(s: Set<T>, key: T): boolean { return s.has(key); }
-  static delete<K>(m: Set<K>, k: K) { m.delete(k); }
 }

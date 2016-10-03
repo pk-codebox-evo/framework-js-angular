@@ -7,24 +7,29 @@
  */
 
 import {Pipe, PipeTransform} from '@angular/core';
-import {isBlank, isString} from '../facade/lang';
-import {InvalidPipeArgumentException} from './invalid_pipe_argument_exception';
+import {isBlank} from '../facade/lang';
+import {InvalidPipeArgumentError} from './invalid_pipe_argument_error';
 
 /**
- * Implements uppercase transforms to text.
+ * @ngModule CommonModule
+ * @whatItDoes Transforms string to uppercase.
+ * @howToUse `expression | uppercase`
+ * @description
+ *
+ * Converts value into lowercase string using `String.prototype.toUpperCase()`.
  *
  * ### Example
  *
- * {@example core/pipes/ts/lowerupper_pipe/lowerupper_pipe_example.ts region='LowerUpperPipe'}
+ * {@example common/pipes/ts/lowerupper_pipe.ts region='LowerUpperPipe'}
  *
- * @experimental
+ * @stable
  */
 @Pipe({name: 'uppercase'})
 export class UpperCasePipe implements PipeTransform {
   transform(value: string): string {
     if (isBlank(value)) return value;
-    if (!isString(value)) {
-      throw new InvalidPipeArgumentException(UpperCasePipe, value);
+    if (typeof value !== 'string') {
+      throw new InvalidPipeArgumentError(UpperCasePipe, value);
     }
     return value.toUpperCase();
   }

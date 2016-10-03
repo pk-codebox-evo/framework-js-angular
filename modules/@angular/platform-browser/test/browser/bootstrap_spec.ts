@@ -6,21 +6,18 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {LowerCasePipe, NgIf} from '@angular/common';
-import {XHR} from '@angular/compiler';
-import {APP_INITIALIZER, Component, Directive, ExceptionHandler, Inject, Input, OnDestroy, PLATFORM_DIRECTIVES, PLATFORM_INITIALIZER, PLATFORM_PIPES, Pipe, ReflectiveInjector, coreLoadAndBootstrap, createPlatform, provide} from '@angular/core';
-import {ApplicationRef, disposePlatform} from '@angular/core/src/application_ref';
+import {APP_INITIALIZER, CUSTOM_ELEMENTS_SCHEMA, Compiler, Component, Directive, ErrorHandler, Inject, Input, NgModule, OnDestroy, PLATFORM_INITIALIZER, Pipe, Provider, createPlatformFactory} from '@angular/core';
+import {ApplicationRef, destroyPlatform} from '@angular/core/src/application_ref';
 import {Console} from '@angular/core/src/console';
 import {ComponentRef} from '@angular/core/src/linker/component_factory';
 import {Testability, TestabilityRegistry} from '@angular/core/src/testability/testability';
-import {ComponentFixture} from '@angular/core/testing';
-import {AsyncTestCompleter, Log, afterEach, beforeEach, beforeEachProviders, ddescribe, describe, expect, iit, inject, it} from '@angular/core/testing/testing_internal';
-import {BROWSER_APP_PROVIDERS, BROWSER_PLATFORM_PROVIDERS} from '@angular/platform-browser';
-import {BROWSER_APP_COMPILER_PROVIDERS, bootstrap} from '@angular/platform-browser-dynamic';
+import {AsyncTestCompleter, Log, afterEach, beforeEach, beforeEachProviders, describe, inject, it} from '@angular/core/testing/testing_internal';
+import {BrowserModule} from '@angular/platform-browser';
+import {platformBrowserDynamic} from '@angular/platform-browser-dynamic';
 import {getDOM} from '@angular/platform-browser/src/dom/dom_adapter';
 import {DOCUMENT} from '@angular/platform-browser/src/dom/dom_tokens';
+import {expect} from '@angular/platform-browser/testing/matchers';
 
-import {PromiseWrapper} from '../../src/facade/async';
 import {stringify} from '../../src/facade/lang';
 
 @Component({selector: 'hello-app', template: '{{greeting}} world!'})
@@ -93,12 +90,13 @@ class HelloCmpUsingPlatformDirectiveAndPipe {
   show: boolean = false;
 }
 
-class _ArrayLogger {
+@Component({selector: 'hello-app', template: '<some-el [someProp]="true">hello world!</some-el>'})
+class HelloCmpUsingCustomElement {
+}
+
+class MockConsole {
   res: any[] = [];
-  log(s: any): void { this.res.push(s); }
-  logError(s: any): void { this.res.push(s); }
-  logGroup(s: any): void { this.res.push(s); }
-  logGroupEnd(){};
+  error(s: any): void { this.res.push(s); }
 }
 
 
@@ -109,9 +107,24 @@ class DummyConsole implements Console {
   warn(message: string) { this.warnings.push(message); }
 }
 
+
+class TestModule {}
+function bootstrap(cmpType: any, providers: Provider[] = []): Promise<any> {
+  @NgModule({
+    imports: [BrowserModule],
+    declarations: [cmpType],
+    bootstrap: [cmpType],
+    providers: providers,
+    schemas: [CUSTOM_ELEMENTS_SCHEMA]
+  })
+  class TestModule {
+  }
+  return platformBrowserDynamic().bootstrapModule(TestModule);
+}
+
 export function main() {
   var fakeDoc: any /** TODO #9100 */, el: any /** TODO #9100 */, el2: any /** TODO #9100 */,
-      testProviders: any /** TODO #9100 */, lightDom: any /** TODO #9100 */;
+      testProviders: Provider[], lightDom: any /** TODO #9100 */;
 
   describe('bootstrap factory method', () => {
     let compilerConsole: DummyConsole;
@@ -119,7 +132,7 @@ export function main() {
     beforeEachProviders(() => { return [Log]; });
 
     beforeEach(() => {
-      disposePlatform();
+      destroyPlatform();
 
       fakeDoc = getDOM().createHtmlDocument();
       el = getDOM().createElement('hello-app', fakeDoc);
@@ -134,7 +147,7 @@ export function main() {
           [{provide: DOCUMENT, useValue: fakeDoc}, {provide: Console, useValue: compilerConsole}];
     });
 
-    afterEach(disposePlatform);
+    afterEach(destroyPlatform);
 
     it('should throw if bootstrapped Directive is not a Component', () => {
       expect(() => bootstrap(HelloRootDirectiveIsNotCmp))
@@ -144,12 +157,12 @@ export function main() {
 
     it('should throw if no element is found',
        inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
-         var logger = new _ArrayLogger();
-         var exceptionHandler = new ExceptionHandler(logger, false);
-
-         var refPromise =
-             bootstrap(HelloRootCmp, [{provide: ExceptionHandler, useValue: exceptionHandler}]);
-         PromiseWrapper.then(refPromise, null, (reason) => {
+         var logger = new MockConsole();
+         var errorHandler = new ErrorHandler(false);
+         errorHandler._console = logger as any;
+         bootstrap(HelloRootCmp, [
+           {provide: ErrorHandler, useValue: errorHandler}
+         ]).then(null, (reason) => {
            expect(reason.message).toContain('The selector "hello-app" did not match any elements');
            async.done();
            return null;
@@ -159,13 +172,13 @@ export function main() {
     if (getDOM().supportsDOMEvents()) {
       it('should forward the error to promise when bootstrap fails',
          inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
-           // Skip for dart since it causes a confusing error message in console when test passes.
-           var logger = new _ArrayLogger();
-           var exceptionHandler = new ExceptionHandler(logger, false);
+           var logger = new MockConsole();
+           var errorHandler = new ErrorHandler(false);
+           errorHandler._console = logger as any;
 
            var refPromise =
-               bootstrap(HelloRootCmp, [{provide: ExceptionHandler, useValue: exceptionHandler}]);
-           PromiseWrapper.then(refPromise, null, (reason: any) => {
+               bootstrap(HelloRootCmp, [{provide: ErrorHandler, useValue: errorHandler}]);
+           refPromise.then(null, (reason: any) => {
              expect(reason.message)
                  .toContain('The selector "hello-app" did not match any elements');
              async.done();
@@ -174,12 +187,13 @@ export function main() {
 
       it('should invoke the default exception handler when bootstrap fails',
          inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
-           var logger = new _ArrayLogger();
-           var exceptionHandler = new ExceptionHandler(logger, false);
+           var logger = new MockConsole();
+           var errorHandler = new ErrorHandler(false);
+           errorHandler._console = logger as any;
 
            var refPromise =
-               bootstrap(HelloRootCmp, [{provide: ExceptionHandler, useValue: exceptionHandler}]);
-           PromiseWrapper.then(refPromise, null, (reason) => {
+               bootstrap(HelloRootCmp, [{provide: ErrorHandler, useValue: errorHandler}]);
+           refPromise.then(null, (reason) => {
              expect(logger.res.join(''))
                  .toContain('The selector "hello-app" did not match any elements');
              async.done();
@@ -201,11 +215,28 @@ export function main() {
          });
        }));
 
+    it('should throw a descriptive error if BrowserModule is installed again via a lazily loaded module',
+       inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
+         @NgModule({imports: [BrowserModule]})
+         class AsyncModule {
+         }
+         bootstrap(HelloRootCmp, testProviders)
+             .then((ref: ComponentRef<HelloRootCmp>) => {
+               let compiler: Compiler = ref.injector.get(Compiler);
+               return compiler.compileModuleAsync(AsyncModule).then(factory => {
+                 expect(() => factory.create(ref.injector))
+                     .toThrowError(
+                         `BrowserModule has already been loaded. If you need access to common directives such as NgIf and NgFor from a lazy loaded module, import CommonModule instead.`);
+               });
+             })
+             .then(() => async.done(), err => async.fail(err));
+       }));
+
     it('should support multiple calls to bootstrap',
        inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
          var refPromise1 = bootstrap(HelloRootCmp, testProviders);
          var refPromise2 = bootstrap(HelloRootCmp2, testProviders);
-         PromiseWrapper.all([refPromise1, refPromise2]).then((refs) => {
+         Promise.all([refPromise1, refPromise2]).then((refs) => {
            expect(el).toHaveText('hello world!');
            expect(el2).toHaveText('hello world, again!');
            async.done();
@@ -222,16 +253,10 @@ export function main() {
 
     it('should unregister change detectors when components are disposed',
        inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
-         var platform =
-             createPlatform(ReflectiveInjector.resolveAndCreate(BROWSER_PLATFORM_PROVIDERS));
-         var app = ReflectiveInjector
-                       .resolveAndCreate(
-                           [BROWSER_APP_PROVIDERS, BROWSER_APP_COMPILER_PROVIDERS, testProviders],
-                           platform.injector)
-                       .get(ApplicationRef);
-         coreLoadAndBootstrap(HelloRootCmp, app.injector).then((ref) => {
+         bootstrap(HelloRootCmp, testProviders).then((ref) => {
+           const appRef = ref.injector.get(ApplicationRef);
            ref.destroy();
-           expect(() => app.tick()).not.toThrow();
+           expect(() => appRef.tick()).not.toThrow();
            async.done();
          });
        }));
@@ -242,7 +267,7 @@ export function main() {
              HelloRootCmp3, [testProviders, {provide: 'appBinding', useValue: 'BoundValue'}]);
 
          refPromise.then((ref) => {
-           expect(ref.instance.appBinding).toEqual('BoundValue');
+           expect(ref.injector.get('appBinding')).toEqual('BoundValue');
            async.done();
          });
        }));
@@ -252,29 +277,36 @@ export function main() {
          var refPromise = bootstrap(HelloRootCmp4, testProviders);
 
          refPromise.then((ref) => {
-           expect(ref.instance.appRef).toBe(ref.injector.get(ApplicationRef));
+           const appRef = ref.injector.get(ApplicationRef);
+           expect(appRef).toBeDefined();
            async.done();
          });
        }));
 
-    it('should run platform initializers', inject([Log], (log: Log) => {
-         let p = createPlatform(ReflectiveInjector.resolveAndCreate([
-           BROWSER_PLATFORM_PROVIDERS,
+    it('should run platform initializers',
+       inject([Log, AsyncTestCompleter], (log: Log, async: AsyncTestCompleter) => {
+         let p = createPlatformFactory(platformBrowserDynamic, 'someName', [
            {provide: PLATFORM_INITIALIZER, useValue: log.fn('platform_init1'), multi: true},
            {provide: PLATFORM_INITIALIZER, useValue: log.fn('platform_init2'), multi: true}
-         ]));
+         ])();
+
+         @NgModule({
+           imports: [BrowserModule],
+           providers: [
+             {provide: APP_INITIALIZER, useValue: log.fn('app_init1'), multi: true},
+             {provide: APP_INITIALIZER, useValue: log.fn('app_init2'), multi: true}
+           ]
+         })
+         class SomeModule {
+           ngDoBootstrap() {}
+         }
+
          expect(log.result()).toEqual('platform_init1; platform_init2');
          log.clear();
-         var a = ReflectiveInjector.resolveAndCreate(
-             [
-               BROWSER_APP_PROVIDERS,
-               {provide: APP_INITIALIZER, useValue: log.fn('app_init1'), multi: true},
-               {provide: APP_INITIALIZER, useValue: log.fn('app_init2'), multi: true}
-             ],
-             p.injector);
-         a.get(ApplicationRef);
-
-         expect(log.result()).toEqual('app_init1; app_init2');
+         p.bootstrapModule(SomeModule).then(() => {
+           expect(log.result()).toEqual('app_init1; app_init2');
+           async.done();
+         });
        }));
 
     it('should register each application with the testability registry',
@@ -282,11 +314,11 @@ export function main() {
          var refPromise1: Promise<ComponentRef<any>> = bootstrap(HelloRootCmp, testProviders);
          var refPromise2: Promise<ComponentRef<any>> = bootstrap(HelloRootCmp2, testProviders);
 
-         PromiseWrapper.all([refPromise1, refPromise2]).then((refs: ComponentRef<any>[]) => {
+         Promise.all([refPromise1, refPromise2]).then((refs: ComponentRef<any>[]) => {
            var registry = refs[0].injector.get(TestabilityRegistry);
            var testabilities =
                [refs[0].injector.get(Testability), refs[1].injector.get(Testability)];
-           PromiseWrapper.all(testabilities).then((testabilities: Testability[]) => {
+           Promise.all(testabilities).then((testabilities: Testability[]) => {
              expect(registry.findTestabilityInTree(el)).toEqual(testabilities[0]);
              expect(registry.findTestabilityInTree(el2)).toEqual(testabilities[1]);
              async.done();
@@ -294,41 +326,9 @@ export function main() {
          });
        }));
 
-    // Note: This will soon be deprecated as bootstrap creates a separate injector for the compiler,
-    // i.e. such providers needs to go into that injecotr (when calling `browserCompiler`);
-    it('should still allow to provide a custom xhr via the regular providers',
-       inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
-         let spyXhr: XHR = {get: (url: string) => Promise.resolve('{{greeting}} world!')};
-         bootstrap(HelloUrlCmp, testProviders.concat([
-           {provide: XHR, useValue: spyXhr}
-         ])).then((compRef) => {
+    it('should allow to pass schemas', inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
+         bootstrap(HelloCmpUsingCustomElement, testProviders).then((compRef) => {
            expect(el).toHaveText('hello world!');
-           expect(compilerConsole.warnings).toEqual([
-             'Passing an instance of XHR to "bootstrap()" as provider is deprecated. Pass the provider via the new parameter "compilerOptions" of "bootstrap()" instead.'
-           ]);
-           async.done();
-         });
-       }));
-
-    // Note: This will soon be deprecated as bootstrap creates a separate injector for the compiler,
-    // i.e. such providers needs to go into that injecotr (when calling `browserCompiler`);
-    it('should still allow to provide platform directives/pipes via the regular providers',
-       inject([Console, AsyncTestCompleter], (console: DummyConsole, async: AsyncTestCompleter) => {
-         bootstrap(HelloCmpUsingPlatformDirectiveAndPipe, testProviders.concat([
-           {provide: PLATFORM_DIRECTIVES, useValue: [SomeDirective]},
-           {provide: PLATFORM_PIPES, useValue: [SomePipe]}
-         ])).then((compRef) => {
-           let compFixture = new ComponentFixture(compRef, null, null);
-           compFixture.detectChanges();
-           expect(compFixture.debugElement.children[0].properties['title'])
-               .toBe('transformed someValue');
-
-           expect(compilerConsole.warnings).toEqual([
-             'Passing PLATFORM_DIRECTIVES to "bootstrap()" as provider is deprecated. Use the new parameter "directives" of "bootstrap()" instead.',
-             'Passing PLATFORM_PIPES to "bootstrap()" as provider is deprecated. Use the new parameter "pipes" of "bootstrap()" instead.',
-             `Providing platform directives via the PLATFORM_DIRECTIVES provider or the "CompilerConfig" is deprecated. Provide platform directives via an @AppModule instead. Directives: ${stringify(SomeDirective)}`,
-             `Providing platform pipes via the PLATFORM_PIPES provider or the "CompilerConfig" is deprecated. Provide platform pipes via an @AppModule instead. Pipes: ${stringify(SomePipe)}`
-           ]);
            async.done();
          });
        }));

@@ -8,141 +8,153 @@
 
 import {Directive, Host, Inject, Input, OnChanges, OnDestroy, Optional, Output, Self, SimpleChanges, SkipSelf, forwardRef} from '@angular/core';
 
-import {EventEmitter, ObservableWrapper} from '../../facade/async';
+import {EventEmitter} from '../../facade/async';
 import {FormControl} from '../../model';
 import {NG_ASYNC_VALIDATORS, NG_VALIDATORS} from '../../validators';
-
+import {AbstractFormGroupDirective} from '../abstract_form_group_directive';
 import {ControlContainer} from '../control_container';
 import {ControlValueAccessor, NG_VALUE_ACCESSOR} from '../control_value_accessor';
 import {NgControl} from '../ng_control';
+import {ReactiveErrors} from '../reactive_errors';
 import {composeAsyncValidators, composeValidators, controlPath, isPropertyUpdated, selectValueAccessor} from '../shared';
-import {AsyncValidatorFn, ValidatorFn} from '../validators';
+import {AsyncValidatorFn, Validator, ValidatorFn} from '../validators';
 
+import {FormGroupDirective} from './form_group_directive';
+import {FormArrayName, FormGroupName} from './form_group_name';
 
-export const controlNameBinding: any =
-    /*@ts2dart_const*/ /* @ts2dart_Provider */ {
-      provide: NgControl,
-      useExisting: forwardRef(() => FormControlName)
-    };
+export const controlNameBinding: any = {
+  provide: NgControl,
+  useExisting: forwardRef(() => FormControlName)
+};
 
 /**
- * Syncs an existing form control with the specified name to a DOM element.
+ * @whatItDoes  Syncs a {@link FormControl} in an existing {@link FormGroup} to a form control
+ * element by name.
  *
- * This directive can only be used as a child of {@link FormGroupDirective}.
-
+ * In other words, this directive ensures that any values written to the {@link FormControl}
+ * instance programmatically will be written to the DOM element (model -> view). Conversely,
+ * any values written to the DOM element through user input will be reflected in the
+ * {@link FormControl} instance (view -> model).
+ *
+ * @howToUse
+ *
+ * This directive is designed to be used with a parent {@link FormGroupDirective} (selector:
+ * `[formGroup]`).
+ *
+ * It accepts the string name of the {@link FormControl} instance you want to
+ * link, and will look for a {@link FormControl} registered with that name in the
+ * closest {@link FormGroup} or {@link FormArray} above it.
+ *
+ * **Access the control**: You can access the {@link FormControl} associated with
+ * this directive by using the {@link AbstractControl.get} method.
+ * Ex: `this.form.get('first');`
+ *
+ * **Get value**: the `value` property is always synced and available on the {@link FormControl}.
+ * See a full list of available properties in {@link AbstractControl}.
+ *
+ *  **Set value**: You can set an initial value for the control when instantiating the
+ *  {@link FormControl}, or you can set it programmatically later using
+ *  {@link AbstractControl.setValue} or {@link AbstractControl.patchValue}.
+ *
+ * **Listen to value**: If you want to listen to changes in the value of the control, you can
+ * subscribe to the {@link AbstractControl.valueChanges} event.  You can also listen to
+ * {@link AbstractControl.statusChanges} to be notified when the validation status is
+ * re-calculated.
+ *
  * ### Example
  *
- * In this example, we create the login and password controls.
- * We can work with each control separately: check its validity, get its value, listen to its
- * changes.
+ * In this example, we create form controls for first name and last name.
  *
- *  ```
- * @Component({
- *      selector: "login-comp",
- *      directives: [REACTIVE_FORM_DIRECTIVES],
- *      template: `
- *        <form [formGroup]="myForm" (submit)="onLogIn()">
- *          Login <input type="text" formControlName="login">
- *          <div *ngIf="!loginCtrl.valid">Login is invalid</div>
- *          Password <input type="password" formControlName="password">
- *          <button type="submit">Log in!</button>
- *        </form>
- *      `})
- * class LoginComp {
- *  loginCtrl = new Control();
- *  passwordCtrl = new Control();
- *  myForm = new FormGroup({
- *     login: loginCtrl,
- *     password: passwordCtrl
- *  });
- *  onLogIn(): void {
- *    // value === {login: 'some login', password: 'some password'}
- *  }
- * }
- *  ```
+ * {@example forms/ts/simpleFormGroup/simple_form_group_example.ts region='Component'}
  *
- * TODO(kara): Remove ngModel example with reactive paradigm
- * We can also use ngModel to bind a domain model to the form, if you don't want to provide
- * individual init values to each control.
+ * To see `formControlName` examples with different form control types, see:
  *
- *  ```
- * @Component({
- *      selector: "login-comp",
- *      directives: [REACTIVE_FORM_DIRECTIVES],
- *      template: `
- *        <form [formGroup]="myForm" (submit)='onLogIn()'>
- *          Login <input type='text' formControlName='login' [(ngModel)]="credentials.login">
- *          Password <input type='password' formControlName='password'
- *                          [(ngModel)]="credentials.password">
- *          <button type='submit'>Log in!</button>
- *        </form>
- *      `})
- * class LoginComp {
- *  credentials: {login:string, password:string};
- *  myForm = new FormGroup({
- *    login: new Control(this.credentials.login),
- *    password: new Control(this.credentials.password)
- *  });
+ * * Radio buttons: {@link RadioControlValueAccessor}
+ * * Selects: {@link SelectControlValueAccessor}
  *
- *  onLogIn(): void {
- *    // this.credentials.login === "some login"
- *    // this.credentials.password === "some password"
- *  }
- * }
- *  ```
+ * **npm package**: `@angular/forms`
  *
- *  @experimental
+ * **NgModule**: {@link ReactiveFormsModule}
+ *
+ *  @stable
  */
 @Directive({selector: '[formControlName]', providers: [controlNameBinding]})
 export class FormControlName extends NgControl implements OnChanges, OnDestroy {
+  private _added = false;
   /** @internal */
   viewModel: any;
-  private _added = false;
+  /** @internal */
+  _control: FormControl;
 
   @Input('formControlName') name: string;
 
   // TODO(kara):  Replace ngModel with reactive API
   @Input('ngModel') model: any;
   @Output('ngModelChange') update = new EventEmitter();
+  @Input('disabled')
+  set isDisabled(isDisabled: boolean) { ReactiveErrors.disabledAttrWarning(); }
 
-  constructor(@Host() @SkipSelf() private _parent: ControlContainer,
-              @Optional() @Self() @Inject(NG_VALIDATORS) private _validators:
-                  /* Array<Validator|Function> */ any[],
-              @Optional() @Self() @Inject(NG_ASYNC_VALIDATORS) private _asyncValidators:
-                  /* Array<Validator|Function> */ any[],
-              @Optional() @Self() @Inject(NG_VALUE_ACCESSOR)
-              valueAccessors: ControlValueAccessor[]) {
-                super();
-                this.valueAccessor = selectValueAccessor(this, valueAccessors);
-              }
+  constructor(
+      @Optional() @Host() @SkipSelf() parent: ControlContainer,
+      @Optional() @Self() @Inject(NG_VALIDATORS) validators: Array<Validator|ValidatorFn>,
+      @Optional() @Self() @Inject(NG_ASYNC_VALIDATORS) asyncValidators:
+          Array<Validator|AsyncValidatorFn>,
+      @Optional() @Self() @Inject(NG_VALUE_ACCESSOR) valueAccessors: ControlValueAccessor[]) {
+    super();
+    this._parent = parent;
+    this._rawValidators = validators || [];
+    this._rawAsyncValidators = asyncValidators || [];
+    this.valueAccessor = selectValueAccessor(this, valueAccessors);
+  }
 
-              ngOnChanges(changes: SimpleChanges) {
-                if (!this._added) {
-                  this.formDirective.addControl(this);
-                  this._added = true;
-                }
-                if (isPropertyUpdated(changes, this.viewModel)) {
-                  this.viewModel = this.model;
-                  this.formDirective.updateModel(this, this.model);
-                }
-              }
+  ngOnChanges(changes: SimpleChanges) {
+    if (!this._added) this._setUpControl();
+    if (isPropertyUpdated(changes, this.viewModel)) {
+      this.viewModel = this.model;
+      this.formDirective.updateModel(this, this.model);
+    }
+  }
 
-              ngOnDestroy(): void { this.formDirective.removeControl(this); }
+  ngOnDestroy(): void {
+    if (this.formDirective) {
+      this.formDirective.removeControl(this);
+    }
+  }
 
-              viewToModelUpdate(newValue: any): void {
-                this.viewModel = newValue;
-                ObservableWrapper.callEmit(this.update, newValue);
-              }
+  viewToModelUpdate(newValue: any): void {
+    this.viewModel = newValue;
+    this.update.emit(newValue);
+  }
 
-              get path(): string[] { return controlPath(this.name, this._parent); }
+  get path(): string[] { return controlPath(this.name, this._parent); }
 
-              get formDirective(): any { return this._parent.formDirective; }
+  get formDirective(): any { return this._parent ? this._parent.formDirective : null; }
 
-              get validator(): ValidatorFn { return composeValidators(this._validators); }
+  get validator(): ValidatorFn { return composeValidators(this._rawValidators); }
 
-              get asyncValidator(): AsyncValidatorFn {
-                return composeAsyncValidators(this._asyncValidators);
-              }
+  get asyncValidator(): AsyncValidatorFn {
+    return composeAsyncValidators(this._rawAsyncValidators);
+  }
 
-              get control(): FormControl { return this.formDirective.getControl(this); }
+  get control(): FormControl { return this._control; }
+
+  private _checkParentType(): void {
+    if (!(this._parent instanceof FormGroupName) &&
+        this._parent instanceof AbstractFormGroupDirective) {
+      ReactiveErrors.ngModelGroupException();
+    } else if (
+        !(this._parent instanceof FormGroupName) && !(this._parent instanceof FormGroupDirective) &&
+        !(this._parent instanceof FormArrayName)) {
+      ReactiveErrors.controlParentException();
+    }
+  }
+
+  private _setUpControl() {
+    this._checkParentType();
+    this._control = this.formDirective.addControl(this);
+    if (this.control.disabled && this.valueAccessor.setDisabledState) {
+      this.valueAccessor.setDisabledState(true);
+    }
+    this._added = true;
+  }
 }

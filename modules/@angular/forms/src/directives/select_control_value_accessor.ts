@@ -13,7 +13,7 @@ import {StringWrapper, isBlank, isPresent, isPrimitive, looseIdentical} from '..
 
 import {ControlValueAccessor, NG_VALUE_ACCESSOR} from './control_value_accessor';
 
-export const SELECT_VALUE_ACCESSOR: any = /*@ts2dart_const*/ /*@ts2dart_Provider*/ {
+export const SELECT_VALUE_ACCESSOR: any = {
   provide: NG_VALUE_ACCESSOR,
   useExisting: forwardRef(() => SelectControlValueAccessor),
   multi: true
@@ -30,14 +30,42 @@ function _extractId(valueString: string): string {
 }
 
 /**
- * The accessor for writing a value and listening to changes on a select element.
+ * @whatItDoes Writes values and listens to changes on a select element.
  *
- * Note: We have to listen to the 'change' event because 'input' events aren't fired
+ * Used by {@link NgModel}, {@link FormControlDirective}, and {@link FormControlName}
+ * to keep the view synced with the {@link FormControl} model.
+ *
+ * @howToUse
+ *
+ * If you have imported the {@link FormsModule} or the {@link ReactiveFormsModule}, this
+ * value accessor will be active on any select control that has a form directive. You do
+ * **not** need to add a special selector to activate it.
+ *
+ * ### How to use select controls with form directives
+ *
+ * To use a select in a template-driven form, simply add an `ngModel` and a `name`
+ * attribute to the main `<select>` tag.
+ *
+ * If your option values are simple strings, you can bind to the normal `value` property
+ * on the option.  If your option values happen to be objects (and you'd like to save the
+ * selection in your form as an object), use `ngValue` instead:
+ *
+ * {@example forms/ts/selectControl/select_control_example.ts region='Component'}
+ *
+ * In reactive forms, you'll also want to add your form directive (`formControlName` or
+ * `formControl`) on the main `<select>` tag. Like in the former example, you have the
+ * choice of binding to the  `value` or `ngValue` property on the select's options.
+ *
+ * {@example forms/ts/reactiveSelectControl/reactive_select_control_example.ts region='Component'}
+ *
+ * Note: We listen to the 'change' event because 'input' events aren't fired
  * for selects in Firefox and IE:
  * https://bugzilla.mozilla.org/show_bug.cgi?id=1024350
  * https://developer.microsoft.com/en-us/microsoft-edge/platform/issues/4660045/
  *
- * @experimental
+ * * **npm package**: `@angular/forms`
+ *
+ * @stable
  */
 @Directive({
   selector:
@@ -71,6 +99,10 @@ export class SelectControlValueAccessor implements ControlValueAccessor {
   }
   registerOnTouched(fn: () => any): void { this.onTouched = fn; }
 
+  setDisabledState(isDisabled: boolean): void {
+    this._renderer.setElementProperty(this._elementRef.nativeElement, 'disabled', isDisabled);
+  }
+
   /** @internal */
   _registerOption(): string { return (this._idCounter++).toString(); }
 
@@ -90,17 +122,13 @@ export class SelectControlValueAccessor implements ControlValueAccessor {
 }
 
 /**
- * Marks `<option>` as dynamic, so Angular can be notified when options change.
+ * @whatItDoes Marks `<option>` as dynamic, so Angular can be notified when options change.
  *
- * ### Example
+ * @howToUse
  *
- * ```
- * <select name="city" ngModel>
- *   <option *ngFor="let c of cities" [value]="c"></option>
- * </select>
- * ```
+ * See docs for {@link SelectControlValueAccessor} for usage examples.
  *
- * @experimental
+ * @stable
  */
 @Directive({selector: 'option'})
 export class NgSelectOption implements OnDestroy {

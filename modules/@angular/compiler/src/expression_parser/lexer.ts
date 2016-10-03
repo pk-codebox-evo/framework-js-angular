@@ -8,7 +8,6 @@
 
 import {Injectable} from '@angular/core';
 import * as chars from '../chars';
-import {BaseException} from '../facade/exceptions';
 import {NumberWrapper, StringJoiner, StringWrapper, isPresent} from '../facade/lang';
 
 export enum TokenType {
@@ -21,7 +20,7 @@ export enum TokenType {
   Error
 }
 
-const KEYWORDS = ['var', 'let', 'null', 'undefined', 'true', 'false', 'if', 'else'];
+const KEYWORDS = ['var', 'let', 'null', 'undefined', 'true', 'false', 'if', 'else', 'this'];
 
 @Injectable()
 export class Lexer {
@@ -58,10 +57,6 @@ export class Token {
 
   isKeyword(): boolean { return this.type == TokenType.Keyword; }
 
-  isKeywordDeprecatedVar(): boolean {
-    return this.type == TokenType.Keyword && this.strValue == 'var';
-  }
-
   isKeywordLet(): boolean { return this.type == TokenType.Keyword && this.strValue == 'let'; }
 
   isKeywordNull(): boolean { return this.type == TokenType.Keyword && this.strValue == 'null'; }
@@ -73,6 +68,8 @@ export class Token {
   isKeywordTrue(): boolean { return this.type == TokenType.Keyword && this.strValue == 'true'; }
 
   isKeywordFalse(): boolean { return this.type == TokenType.Keyword && this.strValue == 'false'; }
+
+  isKeywordThis(): boolean { return this.type == TokenType.Keyword && this.strValue == 'this'; }
 
   isError(): boolean { return this.type == TokenType.Error; }
 
@@ -279,8 +276,7 @@ class _Scanner {
       this.advance();
     }
     var str: string = this.input.substring(start, this.index);
-    var value: number =
-        simple ? NumberWrapper.parseIntAutoRadix(str) : NumberWrapper.parseFloat(str);
+    var value: number = simple ? NumberWrapper.parseIntAutoRadix(str) : parseFloat(str);
     return newNumberToken(start, value);
   }
 

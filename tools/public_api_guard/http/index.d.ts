@@ -61,32 +61,22 @@ export declare class Http {
     delete(url: string, options?: RequestOptionsArgs): Observable<Response>;
     get(url: string, options?: RequestOptionsArgs): Observable<Response>;
     head(url: string, options?: RequestOptionsArgs): Observable<Response>;
+    options(url: string, options?: RequestOptionsArgs): Observable<Response>;
     patch(url: string, body: any, options?: RequestOptionsArgs): Observable<Response>;
     post(url: string, body: any, options?: RequestOptionsArgs): Observable<Response>;
     put(url: string, body: any, options?: RequestOptionsArgs): Observable<Response>;
     request(url: string | Request, options?: RequestOptionsArgs): Observable<Response>;
 }
 
-/** @deprecated */
-export declare const HTTP_BINDINGS: any[];
-
 /** @experimental */
-export declare const HTTP_PROVIDERS: any[];
-
-/** @experimental */
-export declare function httpFactory(xhrBackend: XHRBackend, requestOptions: RequestOptions): Http;
-
-/** @deprecated */
-export declare const JSON_BINDINGS: any[];
+export declare class HttpModule {
+}
 
 /** @experimental */
 export declare class Jsonp extends Http {
     constructor(backend: ConnectionBackend, defaultOptions: RequestOptions);
     request(url: string | Request, options?: RequestOptionsArgs): Observable<Response>;
 }
-
-/** @experimental */
-export declare const JSONP_PROVIDERS: any[];
 
 /** @experimental */
 export declare abstract class JSONPBackend extends ConnectionBackend {
@@ -98,6 +88,10 @@ export declare abstract class JSONPConnection implements Connection {
     request: Request;
     response: Observable<Response>;
     abstract finished(data?: any): void;
+}
+
+/** @experimental */
+export declare class JsonpModule {
 }
 
 /** @experimental */
@@ -125,6 +119,7 @@ export declare class Request extends Body {
     withCredentials: boolean;
     constructor(requestOptions: RequestArgs);
     detectContentType(): ContentType;
+    detectContentTypeFromBody(): ContentType;
     getBody(): any;
 }
 
@@ -179,14 +174,15 @@ export declare class Response extends Body {
 
 /** @experimental */
 export declare enum ResponseContentType {
-    ArrayBuffer = 0,
+    Text = 0,
     Json = 1,
-    Text = 2,
+    ArrayBuffer = 2,
+    Blob = 3,
 }
 
 /** @experimental */
 export declare class ResponseOptions {
-    body: string | Object | ArrayBuffer;
+    body: string | Object | ArrayBuffer | Blob;
     headers: Headers;
     status: number;
     url: string;
@@ -196,7 +192,7 @@ export declare class ResponseOptions {
 
 /** @experimental */
 export declare type ResponseOptionsArgs = {
-    body?: string | Object | FormData | ArrayBuffer;
+    body?: string | Object | FormData | ArrayBuffer | Blob;
     status?: number;
     statusText?: string;
     headers?: Headers;

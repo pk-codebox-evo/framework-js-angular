@@ -6,47 +6,29 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {ObservableWrapper, PromiseWrapper} from '../src/facade/async';
+import {ErrorHandler} from '../src/error_handler';
 import {ListWrapper} from '../src/facade/collection';
-import {BaseException, ExceptionHandler, unimplemented} from '../src/facade/exceptions';
-import {ConcreteType, IS_DART, Type, isBlank, isPresent, isPromise} from '../src/facade/lang';
+import {unimplemented} from '../src/facade/errors';
+import {stringify} from '../src/facade/lang';
+import {isPromise} from '../src/util/lang';
 
-import {APP_INITIALIZER, PLATFORM_INITIALIZER} from './application_tokens';
+import {ApplicationInitStatus} from './application_init';
+import {APP_BOOTSTRAP_LISTENER, PLATFORM_INITIALIZER} from './application_tokens';
 import {ChangeDetectorRef} from './change_detection/change_detector_ref';
 import {Console} from './console';
-import {Inject, Injectable, Injector, OpaqueToken, Optional, OptionalMetadata, ReflectiveInjector, SkipSelf, SkipSelfMetadata, forwardRef} from './di';
-import {AppModuleFactory, AppModuleRef} from './linker/app_module_factory';
-import {Compiler, CompilerFactory, CompilerOptions} from './linker/compiler';
+import {Injectable, Injector, OpaqueToken, Optional, Provider, ReflectiveInjector} from './di';
+import {CompilerFactory, CompilerOptions} from './linker/compiler';
 import {ComponentFactory, ComponentRef} from './linker/component_factory';
 import {ComponentFactoryResolver} from './linker/component_factory_resolver';
-import {ComponentResolver} from './linker/component_resolver';
+import {NgModuleFactory, NgModuleInjector, NgModuleRef} from './linker/ng_module_factory';
 import {WtfScopeFn, wtfCreateScope, wtfLeave} from './profile/profile';
 import {Testability, TestabilityRegistry} from './testability/testability';
-import {NgZone, NgZoneError} from './zone/ng_zone';
+import {Type} from './type';
+import {NgZone} from './zone/ng_zone';
 
-
-
-/**
- * Create an Angular zone.
- * @experimental
- */
-export function createNgZone(parent: NgZone): NgZone {
-  // If an NgZone is already present in the parent injector,
-  // use that one. Creating the NgZone in the same injector as the
-  // application is dangerous as some services might get created before
-  // the NgZone has been created.
-  // We keep the NgZone factory in the application providers for
-  // backwards compatibility for now though.
-  if (parent) {
-    return parent;
-  }
-  return new NgZone({enableLongStackTrace: isDevMode()});
-}
-
-var _devMode: boolean = true;
-var _runModeLocked: boolean = false;
-var _platform: PlatformRef;
-var _inPlatformCreate: boolean = false;
+let _devMode: boolean = true;
+let _runModeLocked: boolean = false;
+let _platform: PlatformRef;
 
 /**
  * Disable Angular's development mode, which turns off assertions and other
@@ -56,25 +38,13 @@ var _inPlatformCreate: boolean = false;
  * does not result in additional changes to any bindings (also known as
  * unidirectional data flow).
  *
- * @experimental APIs related to application bootstrap are currently under review.
+ * @stable
  */
 export function enableProdMode(): void {
   if (_runModeLocked) {
-    // Cannot use BaseException as that ends up importing from facade/lang.
-    throw new BaseException('Cannot enable prod mode after platform setup.');
+    throw new Error('Cannot enable prod mode after platform setup.');
   }
   _devMode = false;
-}
-
-/**
- * Locks the run mode of Angular. After this has been called,
- * it can't be changed any more. I.e. `isDevMode()` will always
- * return the same value.
- *
- * @deprecated This is a noop now. {@link isDevMode} automatically locks the run mode on first call.
- */
-export function lockRunMode(): void {
-  console.warn('lockRunMode() is deprecated and not needed any more.');
 }
 
 /**
@@ -97,33 +67,34 @@ export function isDevMode(): boolean {
  * @experimental APIs related to application bootstrap are currently under review.
  */
 export function createPlatform(injector: Injector): PlatformRef {
-  if (_inPlatformCreate) {
-    throw new BaseException('Already creating a platform...');
-  }
-  if (isPresent(_platform) && !_platform.disposed) {
-    throw new BaseException(
+  if (_platform && !_platform.destroyed) {
+    throw new Error(
         'There can be only one platform. Destroy the previous one to create a new one.');
   }
-  _inPlatformCreate = true;
-  try {
-    _platform = injector.get(PlatformRef);
-  } finally {
-    _inPlatformCreate = false;
-  }
+  _platform = injector.get(PlatformRef);
+  const inits: Function[] = <Function[]>injector.get(PLATFORM_INITIALIZER, null);
+  if (inits) inits.forEach(init => init());
   return _platform;
 }
 
 /**
- * Creates a fatory for a platform
+ * Creates a factory for a platform
  *
  * @experimental APIs related to application bootstrap are currently under review.
  */
-export function createPlatformFactory(name: string, providers: any[]): () => PlatformRef {
+export function createPlatformFactory(
+    parentPlaformFactory: (extraProviders?: Provider[]) => PlatformRef, name: string,
+    providers: Provider[] = []): (extraProviders?: Provider[]) => PlatformRef {
   const marker = new OpaqueToken(`Platform: ${name}`);
-  return () => {
+  return (extraProviders: Provider[] = []) => {
     if (!getPlatform()) {
-      createPlatform(
-          ReflectiveInjector.resolveAndCreate(providers.concat({provide: marker, useValue: true})));
+      if (parentPlaformFactory) {
+        parentPlaformFactory(
+            providers.concat(extraProviders).concat({provide: marker, useValue: true}));
+      } else {
+        createPlatform(ReflectiveInjector.resolveAndCreate(
+            providers.concat(extraProviders).concat({provide: marker, useValue: true})));
+      }
     }
     return assertPlatform(marker);
   };
@@ -136,25 +107,28 @@ export function createPlatformFactory(name: string, providers: any[]): () => Pla
  * @experimental APIs related to application bootstrap are currently under review.
  */
 export function assertPlatform(requiredToken: any): PlatformRef {
-  var platform = getPlatform();
-  if (isBlank(platform)) {
-    throw new BaseException('No platform exists!');
+  const platform = getPlatform();
+
+  if (!platform) {
+    throw new Error('No platform exists!');
   }
-  if (isPresent(platform) && isBlank(platform.injector.get(requiredToken, null))) {
-    throw new BaseException(
+
+  if (!platform.injector.get(requiredToken, null)) {
+    throw new Error(
         'A platform with a different configuration has been created. Please destroy it first.');
   }
+
   return platform;
 }
 
 /**
- * Dispose the existing platform.
+ * Destroy the existing platform.
  *
  * @experimental APIs related to application bootstrap are currently under review.
  */
-export function disposePlatform(): void {
-  if (isPresent(_platform) && !_platform.disposed) {
-    _platform.dispose();
+export function destroyPlatform(): void {
+  if (_platform && !_platform.destroyed) {
+    _platform.destroy();
   }
 }
 
@@ -164,105 +138,7 @@ export function disposePlatform(): void {
  * @experimental APIs related to application bootstrap are currently under review.
  */
 export function getPlatform(): PlatformRef {
-  return isPresent(_platform) && !_platform.disposed ? _platform : null;
-}
-
-/**
- * Creates an instance of an `@AppModule` for the given platform
- * for offline compilation.
- *
- * ## Simple Example
- *
- * ```typescript
- * my_module.ts:
- *
- * @AppModule({
- *   modules: [BrowserModule]
- * })
- * class MyModule {}
- *
- * main.ts:
- * import {MyModuleNgFactory} from './my_module.ngfactory';
- * import {bootstrapModuleFactory} from '@angular/core';
- * import {browserPlatform} from '@angular/platform-browser';
- *
- * let moduleRef = bootstrapModuleFactory(MyModuleNgFactory, browserPlatform());
- * ```
- *
- * @experimental APIs related to application bootstrap are currently under review.
- */
-export function bootstrapModuleFactory<M>(
-    moduleFactory: AppModuleFactory<M>, platform: PlatformRef): AppModuleRef<M> {
-  // Note: We need to create the NgZone _before_ we instantiate the module,
-  // as instantiating the module creates some providers eagerly.
-  // So we create a mini parent injector that just contains the new NgZone and
-  // pass that as parent to the AppModuleFactory.
-  const ngZone = new NgZone({enableLongStackTrace: isDevMode()});
-  const ngZoneInjector =
-      ReflectiveInjector.resolveAndCreate([{provide: NgZone, useValue: ngZone}], platform.injector);
-  return ngZone.run(() => moduleFactory.create(ngZoneInjector));
-}
-
-/**
- * Creates an instance of an `@AppModule` for a given platform using the given runtime compiler.
- *
- * ## Simple Example
- *
- * ```typescript
- * @AppModule({
- *   modules: [BrowserModule]
- * })
- * class MyModule {}
- *
- * let moduleRef = bootstrapModule(MyModule, browserPlatform());
- * ```
- * @stable
- */
-export function bootstrapModule<M>(
-    moduleType: ConcreteType<M>, platform: PlatformRef,
-    compilerOptions: CompilerOptions = {}): Promise<AppModuleRef<M>> {
-  const compilerFactory: CompilerFactory = platform.injector.get(CompilerFactory);
-  const compiler = compilerFactory.createCompiler(compilerOptions);
-  return compiler.compileAppModuleAsync(moduleType)
-      .then((moduleFactory) => bootstrapModuleFactory(moduleFactory, platform))
-      .then((moduleRef) => {
-        const appRef: ApplicationRef = moduleRef.injector.get(ApplicationRef);
-        return appRef.waitForAsyncInitializers().then(() => moduleRef);
-      });
-}
-
-/**
- * Shortcut for ApplicationRef.bootstrap.
- * Requires a platform to be created first.
- *
- * @deprecated Use {@link bootstrapModuleFactory} instead.
- */
-export function coreBootstrap<C>(
-    componentFactory: ComponentFactory<C>, injector: Injector): ComponentRef<C> {
-  let console = injector.get(Console);
-  console.warn('coreBootstrap is deprecated. Use bootstrapModuleFactory instead.');
-  var appRef: ApplicationRef = injector.get(ApplicationRef);
-  return appRef.bootstrap(componentFactory);
-}
-
-/**
- * Resolves the componentFactory for the given component,
- * waits for asynchronous initializers and bootstraps the component.
- * Requires a platform to be created first.
- *
- * @deprecated Use {@link bootstrapModule} instead.
- */
-export function coreLoadAndBootstrap(
-    componentType: Type, injector: Injector): Promise<ComponentRef<any>> {
-  let console = injector.get(Console);
-  console.warn('coreLoadAndBootstrap is deprecated. Use bootstrapModule instead.');
-  var appRef: ApplicationRef = injector.get(ApplicationRef);
-  return appRef.run(() => {
-    var componentResolver: ComponentResolver = injector.get(ComponentResolver);
-    return PromiseWrapper
-        .all([componentResolver.resolveComponent(componentType), appRef.waitForAsyncInitializers()])
-        .then((arr) => appRef.bootstrap(arr[0]));
-  });
+  return _platform && !_platform.destroyed ? _platform : null;
 }
 
 /**
@@ -273,13 +149,60 @@ export function coreLoadAndBootstrap(
  * A page's platform is initialized implicitly when {@link bootstrap}() is called, or
  * explicitly by calling {@link createPlatform}().
  *
- * @experimental APIs related to application bootstrap are currently under review.
+ * @stable
  */
 export abstract class PlatformRef {
   /**
+   * Creates an instance of an `@NgModule` for the given platform
+   * for offline compilation.
+   *
+   * ## Simple Example
+   *
+   * ```typescript
+   * my_module.ts:
+   *
+   * @NgModule({
+   *   imports: [BrowserModule]
+   * })
+   * class MyModule {}
+   *
+   * main.ts:
+   * import {MyModuleNgFactory} from './my_module.ngfactory';
+   * import {platformBrowser} from '@angular/platform-browser';
+   *
+   * let moduleRef = platformBrowser().bootstrapModuleFactory(MyModuleNgFactory);
+   * ```
+   *
+   * @experimental APIs related to application bootstrap are currently under review.
+   */
+  bootstrapModuleFactory<M>(moduleFactory: NgModuleFactory<M>): Promise<NgModuleRef<M>> {
+    throw unimplemented();
+  }
+
+  /**
+   * Creates an instance of an `@NgModule` for a given platform using the given runtime compiler.
+   *
+   * ## Simple Example
+   *
+   * ```typescript
+   * @NgModule({
+   *   imports: [BrowserModule]
+   * })
+   * class MyModule {}
+   *
+   * let moduleRef = platformBrowser().bootstrapModule(MyModule);
+   * ```
+   * @stable
+   */
+  bootstrapModule<M>(moduleType: Type<M>, compilerOptions: CompilerOptions|CompilerOptions[] = []):
+      Promise<NgModuleRef<M>> {
+    throw unimplemented();
+  }
+
+  /**
    * Register a listener to be called when the platform is disposed.
    */
-  abstract registerDisposeListener(dispose: () => void): void;
+  abstract onDestroy(callback: () => void): void;
 
   /**
    * Retrieve the platform {@link Injector}, which is the parent injector for
@@ -290,45 +213,125 @@ export abstract class PlatformRef {
   /**
    * Destroy the Angular platform and all Angular applications on the page.
    */
-  abstract dispose(): void;
+  abstract destroy(): void;
 
-  get disposed(): boolean { throw unimplemented(); }
+  get destroyed(): boolean { throw unimplemented(); }
+}
+
+function _callAndReportToErrorHandler(errorHandler: ErrorHandler, callback: () => any): any {
+  try {
+    const result = callback();
+    if (isPromise(result)) {
+      return result.catch((e: any) => {
+        errorHandler.handleError(e);
+        // rethrow as the exception handler might not do it
+        throw e;
+      });
+    }
+
+    return result;
+  } catch (e) {
+    errorHandler.handleError(e);
+    // rethrow as the exception handler might not do it
+    throw e;
+  }
 }
 
 @Injectable()
 export class PlatformRef_ extends PlatformRef {
-  /** @internal */
-  _applications: ApplicationRef[] = [];
-  /** @internal */
-  _disposeListeners: Function[] = [];
+  private _modules: NgModuleRef<any>[] = [];
+  private _destroyListeners: Function[] = [];
+  private _destroyed: boolean = false;
 
-  private _disposed: boolean = false;
+  constructor(private _injector: Injector) { super(); }
 
-  constructor(private _injector: Injector) {
-    super();
-    if (!_inPlatformCreate) {
-      throw new BaseException('Platforms have to be created via `createPlatform`!');
-    }
-    let inits: Function[] = <Function[]>_injector.get(PLATFORM_INITIALIZER, null);
-    if (isPresent(inits)) inits.forEach(init => init());
-  }
-
-  registerDisposeListener(dispose: () => void): void { this._disposeListeners.push(dispose); }
+  onDestroy(callback: () => void): void { this._destroyListeners.push(callback); }
 
   get injector(): Injector { return this._injector; }
 
-  get disposed() { return this._disposed; }
+  get destroyed() { return this._destroyed; }
 
-  addApplication(appRef: ApplicationRef) { this._applications.push(appRef); }
-
-  dispose(): void {
-    ListWrapper.clone(this._applications).forEach((app) => app.dispose());
-    this._disposeListeners.forEach((dispose) => dispose());
-    this._disposed = true;
+  destroy() {
+    if (this._destroyed) {
+      throw new Error('The platform has already been destroyed!');
+    }
+    this._modules.slice().forEach(module => module.destroy());
+    this._destroyListeners.forEach(listener => listener());
+    this._destroyed = true;
   }
 
-  /** @internal */
-  _applicationDisposed(app: ApplicationRef): void { ListWrapper.remove(this._applications, app); }
+  bootstrapModuleFactory<M>(moduleFactory: NgModuleFactory<M>): Promise<NgModuleRef<M>> {
+    return this._bootstrapModuleFactoryWithZone(moduleFactory, null);
+  }
+
+  private _bootstrapModuleFactoryWithZone<M>(moduleFactory: NgModuleFactory<M>, ngZone: NgZone):
+      Promise<NgModuleRef<M>> {
+    // Note: We need to create the NgZone _before_ we instantiate the module,
+    // as instantiating the module creates some providers eagerly.
+    // So we create a mini parent injector that just contains the new NgZone and
+    // pass that as parent to the NgModuleFactory.
+    if (!ngZone) ngZone = new NgZone({enableLongStackTrace: isDevMode()});
+    // Attention: Don't use ApplicationRef.run here,
+    // as we want to be sure that all possible constructor calls are inside `ngZone.run`!
+    return ngZone.run(() => {
+      const ngZoneInjector =
+          ReflectiveInjector.resolveAndCreate([{provide: NgZone, useValue: ngZone}], this.injector);
+      const moduleRef = <NgModuleInjector<M>>moduleFactory.create(ngZoneInjector);
+      const exceptionHandler: ErrorHandler = moduleRef.injector.get(ErrorHandler, null);
+      if (!exceptionHandler) {
+        throw new Error('No ErrorHandler. Is platform module (BrowserModule) included?');
+      }
+      moduleRef.onDestroy(() => ListWrapper.remove(this._modules, moduleRef));
+      ngZone.onError.subscribe({next: (error: any) => { exceptionHandler.handleError(error); }});
+      return _callAndReportToErrorHandler(exceptionHandler, () => {
+        const initStatus: ApplicationInitStatus = moduleRef.injector.get(ApplicationInitStatus);
+        return initStatus.donePromise.then(() => {
+          this._moduleDoBootstrap(moduleRef);
+          return moduleRef;
+        });
+      });
+    });
+  }
+
+  bootstrapModule<M>(moduleType: Type<M>, compilerOptions: CompilerOptions|CompilerOptions[] = []):
+      Promise<NgModuleRef<M>> {
+    return this._bootstrapModuleWithZone(moduleType, compilerOptions, null);
+  }
+
+  private _bootstrapModuleWithZone<M>(
+      moduleType: Type<M>, compilerOptions: CompilerOptions|CompilerOptions[] = [], ngZone: NgZone,
+      componentFactoryCallback?: any): Promise<NgModuleRef<M>> {
+    const compilerFactory: CompilerFactory = this.injector.get(CompilerFactory);
+    const compiler = compilerFactory.createCompiler(
+        Array.isArray(compilerOptions) ? compilerOptions : [compilerOptions]);
+
+    // ugly internal api hack: generate host component factories for all declared components and
+    // pass the factories into the callback - this is used by UpdateAdapter to get hold of all
+    // factories.
+    if (componentFactoryCallback) {
+      return compiler.compileModuleAndAllComponentsAsync(moduleType)
+          .then(({ngModuleFactory, componentFactories}) => {
+            componentFactoryCallback(componentFactories);
+            return this._bootstrapModuleFactoryWithZone(ngModuleFactory, ngZone);
+          });
+    }
+
+    return compiler.compileModuleAsync(moduleType)
+        .then((moduleFactory) => this._bootstrapModuleFactoryWithZone(moduleFactory, ngZone));
+  }
+
+  private _moduleDoBootstrap(moduleRef: NgModuleInjector<any>) {
+    const appRef = moduleRef.injector.get(ApplicationRef);
+    if (moduleRef.bootstrapFactories.length > 0) {
+      moduleRef.bootstrapFactories.forEach((compFactory) => appRef.bootstrap(compFactory));
+    } else if (moduleRef.instance.ngDoBootstrap) {
+      moduleRef.instance.ngDoBootstrap(appRef);
+    } else {
+      throw new Error(
+          `The module ${stringify(moduleRef.instance.constructor)} was bootstrapped, but it does not declare "@NgModule.bootstrap" components nor a "ngDoBootstrap" method. ` +
+          `Please define one of these.`);
+    }
+  }
 }
 
 /**
@@ -336,32 +339,9 @@ export class PlatformRef_ extends PlatformRef {
  *
  * For more about Angular applications, see the documentation for {@link bootstrap}.
  *
- * @experimental APIs related to application bootstrap are currently under review.
+ * @stable
  */
 export abstract class ApplicationRef {
-  /**
-   * Register a listener to be called each time `bootstrap()` is called to bootstrap
-   * a new root component.
-   */
-  abstract registerBootstrapListener(listener: (ref: ComponentRef<any>) => void): void;
-
-  /**
-   * Register a listener to be called when the application is disposed.
-   */
-  abstract registerDisposeListener(dispose: () => void): void;
-
-  /**
-   * Returns a promise that resolves when all asynchronous application initializers
-   * are done.
-   */
-  abstract waitForAsyncInitializers(): Promise<any>;
-
-  /**
-   * Runs the given callback in the zone and returns the result of the callback.
-   * Exceptions will be forwarded to the ExceptionHandler and rethrown.
-   */
-  abstract run(callback: Function): any;
-
   /**
    * Bootstrap a new component at the root level of the application.
    *
@@ -374,22 +354,7 @@ export abstract class ApplicationRef {
    * ### Example
    * {@example core/ts/platform/platform.ts region='longform'}
    */
-  abstract bootstrap<C>(componentFactory: ComponentFactory<C>|ConcreteType<C>): ComponentRef<C>;
-
-  /**
-   * Retrieve the application {@link Injector}.
-   */
-  get injector(): Injector { return <Injector>unimplemented(); };
-
-  /**
-   * Retrieve the application {@link NgZone}.
-   */
-  get zone(): NgZone { return <NgZone>unimplemented(); };
-
-  /**
-   * Dispose of this application and all of its components.
-   */
-  abstract dispose(): void;
+  abstract bootstrap<C>(componentFactory: ComponentFactory<C>|Type<C>): ComponentRef<C>;
 
   /**
    * Invoke this method to explicitly process change detection and its side-effects.
@@ -405,8 +370,14 @@ export abstract class ApplicationRef {
 
   /**
    * Get a list of component types registered to this application.
+   * This list is populated even before the component is created.
    */
-  get componentTypes(): Type[] { return <Type[]>unimplemented(); };
+  get componentTypes(): Type<any>[] { return <Type<any>[]>unimplemented(); };
+
+  /**
+   * Get a list of components registered to this application.
+   */
+  get components(): ComponentRef<any>[] { return <ComponentRef<any>[]>unimplemented(); };
 }
 
 @Injectable()
@@ -414,66 +385,26 @@ export class ApplicationRef_ extends ApplicationRef {
   /** @internal */
   static _tickScope: WtfScopeFn = wtfCreateScope('ApplicationRef#tick()');
 
-  /** @internal */
   private _bootstrapListeners: Function[] = [];
-  /** @internal */
-  private _disposeListeners: Function[] = [];
-  /** @internal */
   private _rootComponents: ComponentRef<any>[] = [];
-  /** @internal */
-  private _rootComponentTypes: Type[] = [];
-  /** @internal */
+  private _rootComponentTypes: Type<any>[] = [];
   private _changeDetectorRefs: ChangeDetectorRef[] = [];
-  /** @internal */
   private _runningTick: boolean = false;
-  /** @internal */
   private _enforceNoNewChanges: boolean = false;
 
-  private _asyncInitDonePromise: Promise<any>;
-  private _asyncInitDone: boolean;
-
   constructor(
-      private _platform: PlatformRef_, private _zone: NgZone, private _console: Console,
-      private _injector: Injector, private _exceptionHandler: ExceptionHandler,
+      private _zone: NgZone, private _console: Console, private _injector: Injector,
+      private _exceptionHandler: ErrorHandler,
       private _componentFactoryResolver: ComponentFactoryResolver,
+      private _initStatus: ApplicationInitStatus,
       @Optional() private _testabilityRegistry: TestabilityRegistry,
-      @Optional() private _testability: Testability,
-      @Optional() @Inject(APP_INITIALIZER) inits: Function[]) {
+      @Optional() private _testability: Testability) {
     super();
     this._enforceNoNewChanges = isDevMode();
-    this._asyncInitDonePromise = this.run(() => {
-      var asyncInitResults: Promise<any>[] = [];
-      var asyncInitDonePromise: Promise<any>;
-      if (isPresent(inits)) {
-        for (var i = 0; i < inits.length; i++) {
-          var initResult = inits[i]();
-          if (isPromise(initResult)) {
-            asyncInitResults.push(initResult);
-          }
-        }
-      }
-      if (asyncInitResults.length > 0) {
-        asyncInitDonePromise =
-            PromiseWrapper.all(asyncInitResults).then((_) => this._asyncInitDone = true);
-        this._asyncInitDone = false;
-      } else {
-        this._asyncInitDone = true;
-        asyncInitDonePromise = PromiseWrapper.resolve(true);
-      }
-      return asyncInitDonePromise;
-    });
-    ObservableWrapper.subscribe(this._zone.onError, (error: NgZoneError) => {
-      this._exceptionHandler.call(error.error, error.stackTrace);
-    });
-    ObservableWrapper.subscribe(
-        this._zone.onMicrotaskEmpty, (_) => { this._zone.run(() => { this.tick(); }); });
-  }
 
-  registerBootstrapListener(listener: (ref: ComponentRef<any>) => void): void {
-    this._bootstrapListeners.push(listener);
+    this._zone.onMicrotaskEmpty.subscribe(
+        {next: () => { this._zone.run(() => { this.tick(); }); }});
   }
-
-  registerDisposeListener(dispose: () => void): void { this._disposeListeners.push(dispose); }
 
   registerChangeDetector(changeDetector: ChangeDetectorRef): void {
     this._changeDetectorRefs.push(changeDetector);
@@ -483,65 +414,32 @@ export class ApplicationRef_ extends ApplicationRef {
     ListWrapper.remove(this._changeDetectorRefs, changeDetector);
   }
 
-  waitForAsyncInitializers(): Promise<any> { return this._asyncInitDonePromise; }
-
-  run(callback: Function): any {
-    var result: any;
-    // Note: Don't use zone.runGuarded as we want to know about
-    // the thrown exception!
-    // Note: the completer needs to be created outside
-    // of `zone.run` as Dart swallows rejected promises
-    // via the onError callback of the promise.
-    var completer = PromiseWrapper.completer();
-    this._zone.run(() => {
-      try {
-        result = callback();
-        if (isPromise(result)) {
-          PromiseWrapper.then(
-              result, (ref) => { completer.resolve(ref); },
-              (err, stackTrace) => {
-                completer.reject(err, stackTrace);
-                this._exceptionHandler.call(err, stackTrace);
-              });
-        }
-      } catch (e) {
-        this._exceptionHandler.call(e, e.stack);
-        throw e;
-      }
-    });
-    return isPromise(result) ? completer.promise : result;
-  }
-
-  bootstrap<C>(componentOrFactory: ComponentFactory<C>|ConcreteType<C>): ComponentRef<C> {
-    if (!this._asyncInitDone) {
-      throw new BaseException(
-          'Cannot bootstrap as there are still asynchronous initializers running. Wait for them using waitForAsyncInitializers().');
+  bootstrap<C>(componentOrFactory: ComponentFactory<C>|Type<C>): ComponentRef<C> {
+    if (!this._initStatus.done) {
+      throw new Error(
+          'Cannot bootstrap as there are still asynchronous initializers running. Bootstrap components in the `ngDoBootstrap` method of the root module.');
     }
-    return this.run(() => {
-      let componentFactory: ComponentFactory<C>;
-      if (componentOrFactory instanceof ComponentFactory) {
-        componentFactory = componentOrFactory;
-      } else {
-        componentFactory =
-            this._componentFactoryResolver.resolveComponentFactory(componentOrFactory);
-      }
-      this._rootComponentTypes.push(componentFactory.componentType);
-      var compRef = componentFactory.create(this._injector, [], componentFactory.selector);
-      compRef.onDestroy(() => { this._unloadComponent(compRef); });
-      var testability = compRef.injector.get(Testability, null);
-      if (isPresent(testability)) {
-        compRef.injector.get(TestabilityRegistry)
-            .registerApplication(compRef.location.nativeElement, testability);
-      }
+    let componentFactory: ComponentFactory<C>;
+    if (componentOrFactory instanceof ComponentFactory) {
+      componentFactory = componentOrFactory;
+    } else {
+      componentFactory = this._componentFactoryResolver.resolveComponentFactory(componentOrFactory);
+    }
+    this._rootComponentTypes.push(componentFactory.componentType);
+    const compRef = componentFactory.create(this._injector, [], componentFactory.selector);
+    compRef.onDestroy(() => { this._unloadComponent(compRef); });
+    const testability = compRef.injector.get(Testability, null);
+    if (testability) {
+      compRef.injector.get(TestabilityRegistry)
+          .registerApplication(compRef.location.nativeElement, testability);
+    }
 
-      this._loadComponent(compRef);
-      if (isDevMode()) {
-        let prodDescription = IS_DART ? 'Production mode is disabled in Dart.' :
-                                        'Call enableProdMode() to enable the production mode.';
-        this._console.log(`Angular 2 is running in the development mode. ${prodDescription}`);
-      }
-      return compRef;
-    });
+    this._loadComponent(compRef);
+    if (isDevMode()) {
+      this._console.log(
+          `Angular 2 is running in the development mode. Call enableProdMode() to enable the production mode.`);
+    }
+    return compRef;
   }
 
   /** @internal */
@@ -549,28 +447,28 @@ export class ApplicationRef_ extends ApplicationRef {
     this._changeDetectorRefs.push(componentRef.changeDetectorRef);
     this.tick();
     this._rootComponents.push(componentRef);
-    this._bootstrapListeners.forEach((listener) => listener(componentRef));
+    // Get the listeners lazily to prevent DI cycles.
+    const listeners =
+        <((compRef: ComponentRef<any>) => void)[]>this._injector.get(APP_BOOTSTRAP_LISTENER, [])
+            .concat(this._bootstrapListeners);
+    listeners.forEach((listener) => listener(componentRef));
   }
 
   /** @internal */
   _unloadComponent(componentRef: ComponentRef<any>): void {
-    if (!ListWrapper.contains(this._rootComponents, componentRef)) {
+    if (this._rootComponents.indexOf(componentRef) == -1) {
       return;
     }
     this.unregisterChangeDetector(componentRef.changeDetectorRef);
     ListWrapper.remove(this._rootComponents, componentRef);
   }
 
-  get injector(): Injector { return this._injector; }
-
-  get zone(): NgZone { return this._zone; }
-
   tick(): void {
     if (this._runningTick) {
-      throw new BaseException('ApplicationRef.tick is called recursively');
+      throw new Error('ApplicationRef.tick is called recursively');
     }
 
-    var s = ApplicationRef_._tickScope();
+    const scope = ApplicationRef_._tickScope();
     try {
       this._runningTick = true;
       this._changeDetectorRefs.forEach((detector) => detector.detectChanges());
@@ -579,33 +477,16 @@ export class ApplicationRef_ extends ApplicationRef {
       }
     } finally {
       this._runningTick = false;
-      wtfLeave(s);
+      wtfLeave(scope);
     }
   }
 
-  dispose(): void {
+  ngOnDestroy() {
     // TODO(alxhub): Dispose of the NgZone.
-    ListWrapper.clone(this._rootComponents).forEach((ref) => ref.destroy());
-    this._disposeListeners.forEach((dispose) => dispose());
-    this._platform._applicationDisposed(this);
+    this._rootComponents.slice().forEach((component) => component.destroy());
   }
 
-  get componentTypes(): Type[] { return this._rootComponentTypes; }
+  get componentTypes(): Type<any>[] { return this._rootComponentTypes; }
+
+  get components(): ComponentRef<any>[] { return this._rootComponents; }
 }
-
-export const PLATFORM_CORE_PROVIDERS =
-    /*@ts2dart_const*/[
-      PlatformRef_,
-      /*@ts2dart_const*/ (
-          /* @ts2dart_Provider */ {provide: PlatformRef, useExisting: PlatformRef_})
-    ];
-
-export const APPLICATION_CORE_PROVIDERS = /*@ts2dart_const*/[
-  /* @ts2dart_Provider */ {
-    provide: NgZone,
-    useFactory: createNgZone,
-    deps: <any>[[new SkipSelfMetadata(), new OptionalMetadata(), NgZone]]
-  },
-  ApplicationRef_,
-  /* @ts2dart_Provider */ {provide: ApplicationRef, useExisting: ApplicationRef_},
-];

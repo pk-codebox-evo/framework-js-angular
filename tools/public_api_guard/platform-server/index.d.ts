@@ -1,11 +1,9 @@
 /** @experimental */
-export declare const SERVER_PLATFORM_PROVIDERS: Array<any>;
-
-/** @deprecated */
-export declare function serverBootstrap(appComponentType: Type, providers: Array<any>): Promise<ComponentRef<any>>;
+export declare const platformDynamicServer: (extraProviders?: Provider[]) => PlatformRef;
 
 /** @experimental */
-export declare const serverDynamicPlatform: () => PlatformRef;
+export declare const platformServer: (extraProviders?: Provider[]) => PlatformRef;
 
 /** @experimental */
-export declare const serverPlatform: () => PlatformRef;
+export declare class ServerModule {
+}

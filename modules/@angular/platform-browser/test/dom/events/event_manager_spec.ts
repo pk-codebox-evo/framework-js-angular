@@ -6,16 +6,15 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {describe, ddescribe, it, iit, xit, xdescribe, expect, beforeEach,} from '@angular/core/testing/testing_internal';
-import {DomEventsPlugin} from '@angular/platform-browser/src/dom/events/dom_events';
 import {NgZone} from '@angular/core/src/zone/ng_zone';
-import {ListWrapper, Map} from '../../../src/facade/collection';
+import {beforeEach, describe, expect, it} from '@angular/core/testing/testing_internal';
 import {getDOM} from '@angular/platform-browser/src/dom/dom_adapter';
+import {DomEventsPlugin} from '@angular/platform-browser/src/dom/events/dom_events';
 import {EventManager, EventManagerPlugin} from '@angular/platform-browser/src/dom/events/event_manager';
 import {el} from '../../../testing/browser_util';
 
 export function main() {
-  var domEventPlugin: any /** TODO #9100 */;
+  var domEventPlugin: DomEventsPlugin;
 
   describe('EventManager', () => {
 
@@ -28,7 +27,7 @@ export function main() {
          var plugin = new FakeEventManagerPlugin(['click']);
          var manager = new EventManager([domEventPlugin, plugin], new FakeNgZone());
          manager.addEventListener(element, 'click', handler);
-         expect(plugin._eventHandler.get('click')).toBe(handler);
+         expect(plugin.eventHandler['click']).toBe(handler);
        });
 
     it('should delegate event bindings to the first plugin supporting the event', () => {
@@ -40,10 +39,8 @@ export function main() {
       var manager = new EventManager([plugin2, plugin1], new FakeNgZone());
       manager.addEventListener(element, 'click', clickHandler);
       manager.addEventListener(element, 'dblclick', dblClickHandler);
-      expect(plugin1._eventHandler.has('click')).toBe(false);
-      expect(plugin2._eventHandler.get('click')).toBe(clickHandler);
-      expect(plugin2._eventHandler.has('dblclick')).toBe(false);
-      expect(plugin1._eventHandler.get('dblclick')).toBe(dblClickHandler);
+      expect(plugin2.eventHandler['click']).toBe(clickHandler);
+      expect(plugin1.eventHandler['dblclick']).toBe(dblClickHandler);
     });
 
     it('should throw when no plugin can handle the event', () => {
@@ -90,21 +87,23 @@ export function main() {
   });
 }
 
+/** @internal */
 class FakeEventManagerPlugin extends EventManagerPlugin {
-  _eventHandler = new Map<string, Function>();
-  constructor(public _supports: string[]) { super(); }
+  eventHandler: {[event: string]: Function} = {};
 
-  supports(eventName: string): boolean { return ListWrapper.contains(this._supports, eventName); }
+  constructor(public supportedEvents: string[]) { super(); }
 
-  addEventListener(element: any /** TODO #9100 */, eventName: string, handler: Function) {
-    this._eventHandler.set(eventName, handler);
-    return () => { this._eventHandler.delete(eventName); };
+  supports(eventName: string): boolean { return this.supportedEvents.indexOf(eventName) > -1; }
+
+  addEventListener(element: any, eventName: string, handler: Function) {
+    this.eventHandler[eventName] = handler;
+    return () => { delete (this.eventHandler[eventName]); };
   }
 }
 
 class FakeNgZone extends NgZone {
   constructor() { super({enableLongStackTrace: false}); }
-  run(fn: any /** TODO #9100 */) { fn(); }
+  run(fn: Function) { fn(); }
 
-  runOutsideAngular(fn: any /** TODO #9100 */) { return fn(); }
+  runOutsideAngular(fn: Function) { return fn(); }
 }

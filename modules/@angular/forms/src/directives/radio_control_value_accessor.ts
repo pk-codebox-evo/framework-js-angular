@@ -9,13 +9,11 @@
 import {Directive, ElementRef, Injectable, Injector, Input, OnDestroy, OnInit, Renderer, forwardRef} from '@angular/core';
 
 import {ListWrapper} from '../facade/collection';
-import {BaseException} from '../facade/exceptions';
-import {isPresent} from '../facade/lang';
 
 import {ControlValueAccessor, NG_VALUE_ACCESSOR} from './control_value_accessor';
 import {NgControl} from './ng_control';
 
-export const RADIO_VALUE_ACCESSOR: any = /*@ts2dart_const*/ /*@ts2dart_Provider*/ {
+export const RADIO_VALUE_ACCESSOR: any = {
   provide: NG_VALUE_ACCESSOR,
   useExisting: forwardRef(() => RadioControlValueAccessor),
   multi: true
@@ -54,27 +52,39 @@ export class RadioControlRegistry {
       controlPair: [NgControl, RadioControlValueAccessor],
       accessor: RadioControlValueAccessor): boolean {
     if (!controlPair[0].control) return false;
-    return controlPair[0].control.root === accessor._control.control.root &&
+    return controlPair[0]._parent === accessor._control._parent &&
         controlPair[1].name === accessor.name;
   }
 }
 
 /**
- * The accessor for writing a radio control value and listening to changes that is used by the
- * {@link NgModel}, {@link FormControlDirective}, and {@link FormControlName} directives.
+ * @whatItDoes  Writes radio control values and listens to radio control changes.
  *
- *  ### Example
- *  ```
- *  @Component({
- *    template: `
- *      <input type="radio" name="food" [(ngModel)]="food" value="chicken">
- *      <input type="radio" name="food" [(ngModel)]="food" value="fish">
- *    `
- *  })
- *  class FoodCmp {
- *    food = 'chicken';
- *  }
- *  ```
+ * Used by {@link NgModel}, {@link FormControlDirective}, and {@link FormControlName}
+ * to keep the view synced with the {@link FormControl} model.
+ *
+ * @howToUse
+ *
+ * If you have imported the {@link FormsModule} or the {@link ReactiveFormsModule}, this
+ * value accessor will be active on any radio control that has a form directive. You do
+ * **not** need to add a special selector to activate it.
+ *
+ * ### How to use radio buttons with form directives
+ *
+ * To use radio buttons in a template-driven form, you'll want to ensure that radio buttons
+ * in the same group have the same `name` attribute.  Radio buttons with different `name`
+ * attributes do not affect each other.
+ *
+ * {@example forms/ts/radioButtons/radio_button_example.ts region='TemplateDriven'}
+ *
+ * When using radio buttons in a reactive form, radio buttons in the same group should have the
+ * same `formControlName`. You can also add a `name` attribute, but it's optional.
+ *
+ * {@example forms/ts/reactiveRadioButtons/reactive_radio_button_example.ts region='Reactive'}
+ *
+ *  * **npm package**: `@angular/forms`
+ *
+ *  @stable
  */
 @Directive({
   selector:
@@ -111,9 +121,7 @@ export class RadioControlValueAccessor implements ControlValueAccessor,
 
   writeValue(value: any): void {
     this._state = value === this.value;
-    if (isPresent(value)) {
-      this._renderer.setElementProperty(this._elementRef.nativeElement, 'checked', this._state);
-    }
+    this._renderer.setElementProperty(this._elementRef.nativeElement, 'checked', this._state);
   }
 
   registerOnChange(fn: (_: any) => {}): void {
@@ -128,6 +136,10 @@ export class RadioControlValueAccessor implements ControlValueAccessor,
 
   registerOnTouched(fn: () => {}): void { this.onTouched = fn; }
 
+  setDisabledState(isDisabled: boolean): void {
+    this._renderer.setElementProperty(this._elementRef.nativeElement, 'disabled', isDisabled);
+  }
+
   private _checkName(): void {
     if (this.name && this.formControlName && this.name !== this.formControlName) {
       this._throwNameError();
@@ -136,7 +148,7 @@ export class RadioControlValueAccessor implements ControlValueAccessor,
   }
 
   private _throwNameError(): void {
-    throw new BaseException(`
+    throw new Error(`
       If you define both a name and a formControlName attribute on your radio button, their values
       must match. Ex: <input type="radio" formControlName="food" name="food">
     `);

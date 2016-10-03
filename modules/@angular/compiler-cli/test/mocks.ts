@@ -6,9 +6,8 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
+import {ReflectorHostContext} from '@angular/compiler-cli/src/reflector_host';
 import * as ts from 'typescript';
-
-import {ReflectorHost, ReflectorHostContext} from '../src/reflector_host';
 
 export type Entry = string | Directory;
 
@@ -19,7 +18,7 @@ export class MockContext implements ReflectorHostContext {
 
   fileExists(fileName: string): boolean { return typeof this.getEntry(fileName) === 'string'; }
 
-  directoryExists(path: string): boolean { return typeof this.getEntry(path) === 'object' }
+  directoryExists(path: string): boolean { return typeof this.getEntry(path) === 'object'; }
 
   readFile(fileName: string): string|undefined {
     let data = this.getEntry(fileName);
@@ -60,6 +59,15 @@ export class MockContext implements ReflectorHostContext {
       current = next;
     }
     return current;
+  }
+
+  getDirectories(path: string): string[] {
+    const dir = this.getEntry(path);
+    if (typeof dir !== 'object') {
+      return [];
+    } else {
+      return Object.keys(dir).filter(key => typeof dir[key] === 'object');
+    }
   }
 }
 
@@ -117,4 +125,6 @@ export class MockCompilerHost implements ts.CompilerHost {
   useCaseSensitiveFileNames(): boolean { return false; }
 
   getNewLine(): string { return '\n'; }
+
+  getDirectories(path: string): string[] { return this.context.getDirectories(path); }
 }

@@ -6,13 +6,13 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {ListWrapper,} from '../facade/collection';
-import {TemplateAst, TemplateAstVisitor, NgContentAst, EmbeddedTemplateAst, ElementAst, ReferenceAst, VariableAst, BoundEventAst, BoundElementPropertyAst, AttrAst, BoundTextAst, TextAst, DirectiveAst, BoundDirectivePropertyAst, templateVisitAll,} from '../template_ast';
-import {bindRenderText, bindRenderInputs, bindDirectiveInputs, bindDirectiveHostProps} from './property_binder';
-import {bindRenderOutputs, collectEventListeners, bindDirectiveOutputs} from './event_binder';
-import {bindDirectiveAfterContentLifecycleCallbacks, bindDirectiveAfterViewLifecycleCallbacks, bindDirectiveDestroyLifecycleCallbacks, bindPipeDestroyLifecycleCallbacks, bindDirectiveDetectChangesLifecycleCallbacks} from './lifecycle_binder';
+import {AttrAst, BoundDirectivePropertyAst, BoundElementPropertyAst, BoundEventAst, BoundTextAst, DirectiveAst, ElementAst, EmbeddedTemplateAst, NgContentAst, ReferenceAst, TemplateAst, TemplateAstVisitor, TextAst, VariableAst, templateVisitAll} from '../template_parser/template_ast';
+
+import {CompileElement} from './compile_element';
 import {CompileView} from './compile_view';
-import {CompileElement, CompileNode} from './compile_element';
+import {CompileEventListener, bindDirectiveOutputs, bindRenderOutputs, collectEventListeners} from './event_binder';
+import {bindDirectiveAfterContentLifecycleCallbacks, bindDirectiveAfterViewLifecycleCallbacks, bindDirectiveDetectChangesLifecycleCallbacks, bindInjectableDestroyLifecycleCallbacks, bindPipeDestroyLifecycleCallbacks} from './lifecycle_binder';
+import {bindDirectiveHostProps, bindDirectiveInputs, bindRenderInputs, bindRenderText} from './property_binder';
 
 export function bindView(view: CompileView, parsedTemplate: TemplateAst[]): void {
   var visitor = new ViewBinderVisitor(view);
@@ -40,11 +40,14 @@ class ViewBinderVisitor implements TemplateAstVisitor {
 
   visitElement(ast: ElementAst, parent: CompileElement): any {
     var compileElement = <CompileElement>this.view.nodes[this._nodeIndex++];
-    var eventListeners = collectEventListeners(ast.outputs, ast.directives, compileElement);
+    var eventListeners: CompileEventListener[] = [];
+    collectEventListeners(ast.outputs, ast.directives, compileElement).forEach(entry => {
+      eventListeners.push(entry);
+    });
     bindRenderInputs(ast.inputs, compileElement);
     bindRenderOutputs(eventListeners);
-    ListWrapper.forEachWithIndex(ast.directives, (directiveAst, index) => {
-      var directiveInstance = compileElement.directiveInstances[index];
+    ast.directives.forEach((directiveAst) => {
+      var directiveInstance = compileElement.instances.get(directiveAst.directive.type.reference);
       bindDirectiveInputs(directiveAst, directiveInstance, compileElement);
       bindDirectiveDetectChangesLifecycleCallbacks(directiveAst, directiveInstance, compileElement);
 
@@ -54,14 +57,16 @@ class ViewBinderVisitor implements TemplateAstVisitor {
     templateVisitAll(this, ast.children, compileElement);
     // afterContent and afterView lifecycles need to be called bottom up
     // so that children are notified before parents
-    ListWrapper.forEachWithIndex(ast.directives, (directiveAst, index) => {
-      var directiveInstance = compileElement.directiveInstances[index];
+    ast.directives.forEach((directiveAst) => {
+      var directiveInstance = compileElement.instances.get(directiveAst.directive.type.reference);
       bindDirectiveAfterContentLifecycleCallbacks(
           directiveAst.directive, directiveInstance, compileElement);
       bindDirectiveAfterViewLifecycleCallbacks(
           directiveAst.directive, directiveInstance, compileElement);
-      bindDirectiveDestroyLifecycleCallbacks(
-          directiveAst.directive, directiveInstance, compileElement);
+    });
+    ast.providers.forEach((providerAst) => {
+      var providerInstance = compileElement.instances.get(providerAst.token.reference);
+      bindInjectableDestroyLifecycleCallbacks(providerAst, providerInstance, compileElement);
     });
     return null;
   }
@@ -69,8 +74,8 @@ class ViewBinderVisitor implements TemplateAstVisitor {
   visitEmbeddedTemplate(ast: EmbeddedTemplateAst, parent: CompileElement): any {
     var compileElement = <CompileElement>this.view.nodes[this._nodeIndex++];
     var eventListeners = collectEventListeners(ast.outputs, ast.directives, compileElement);
-    ListWrapper.forEachWithIndex(ast.directives, (directiveAst, index) => {
-      var directiveInstance = compileElement.directiveInstances[index];
+    ast.directives.forEach((directiveAst) => {
+      var directiveInstance = compileElement.instances.get(directiveAst.directive.type.reference);
       bindDirectiveInputs(directiveAst, directiveInstance, compileElement);
       bindDirectiveDetectChangesLifecycleCallbacks(directiveAst, directiveInstance, compileElement);
       bindDirectiveOutputs(directiveAst, directiveInstance, eventListeners);
@@ -78,8 +83,10 @@ class ViewBinderVisitor implements TemplateAstVisitor {
           directiveAst.directive, directiveInstance, compileElement);
       bindDirectiveAfterViewLifecycleCallbacks(
           directiveAst.directive, directiveInstance, compileElement);
-      bindDirectiveDestroyLifecycleCallbacks(
-          directiveAst.directive, directiveInstance, compileElement);
+    });
+    ast.providers.forEach((providerAst) => {
+      var providerInstance = compileElement.instances.get(providerAst.token.reference);
+      bindInjectableDestroyLifecycleCallbacks(providerAst, providerInstance, compileElement);
     });
     bindView(compileElement.embeddedView, ast.children);
     return null;

@@ -11,7 +11,7 @@ import {AnimationKeyframe} from '../../src/animation/animation_keyframe';
 import * as animationUtils from '../../src/animation/animation_style_util';
 import {AnimationStyles} from '../../src/animation/animation_styles';
 import {AUTO_STYLE} from '../../src/animation/metadata';
-import {AsyncTestCompleter, beforeEach, ddescribe, describe, expect, iit, inject, it, xdescribe, xit} from '../../testing/testing_internal';
+import {describe, expect, it} from '../../testing/testing_internal';
 
 export function main() {
   describe('Animation Style Utils', function() {
@@ -23,7 +23,7 @@ export function main() {
            var newStyles = {background: 'red'};
            var flag = '*';
            var result = animationUtils.prepareFinalAnimationStyles(styles, newStyles, flag);
-           expect(result).toEqual({opacity: flag, color: flag, background: 'red'})
+           expect(result).toEqual({opacity: flag, color: flag, background: 'red'});
          });
 
       it('should handle an empty set of styles', () => {
@@ -43,7 +43,7 @@ export function main() {
         var newStyles = {color: '*', border: '*'};
         var flag = '*';
         var result = animationUtils.prepareFinalAnimationStyles(styles, newStyles, null);
-        expect(result).toEqual({opacity: null, color: null, border: null})
+        expect(result).toEqual({opacity: null, color: null, border: null});
       });
 
     });

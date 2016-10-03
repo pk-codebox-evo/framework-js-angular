@@ -9,7 +9,6 @@
 import {Injectable} from '@angular/core';
 import {Observable} from 'rxjs/Observable';
 
-import {makeTypeError} from '../src/facade/exceptions';
 import {isPresent, isString} from '../src/facade/lang';
 
 import {BaseRequestOptions, RequestOptions} from './base_request_options';
@@ -17,7 +16,6 @@ import {RequestMethod} from './enums';
 import {ConnectionBackend, RequestOptionsArgs} from './interfaces';
 import {Request} from './static_request';
 import {Response} from './static_response';
-import {URLSearchParams} from './url_search_params';
 
 function httpRequest(backend: ConnectionBackend, request: Request): Observable<Response> {
   return backend.createConnection(request).response;
@@ -125,7 +123,7 @@ export class Http {
     } else if (url instanceof Request) {
       responseObservable = httpRequest(this._backend, url);
     } else {
-      throw makeTypeError('First argument must be a url string or Request instance.');
+      throw new Error('First argument must be a url string or Request instance.');
     }
     return responseObservable;
   }
@@ -186,6 +184,15 @@ export class Http {
         this._backend,
         new Request(mergeOptions(this._defaultOptions, options, RequestMethod.Head, url)));
   }
+
+  /**
+   * Performs a request with `options` http method.
+   */
+  options(url: string, options?: RequestOptionsArgs): Observable<Response> {
+    return httpRequest(
+        this._backend,
+        new Request(mergeOptions(this._defaultOptions, options, RequestMethod.Options, url)));
+  }
 }
 
 
@@ -220,11 +227,11 @@ export class Jsonp extends Http {
     }
     if (url instanceof Request) {
       if (url.method !== RequestMethod.Get) {
-        makeTypeError('JSONP requests must use GET request method.');
+        throw new Error('JSONP requests must use GET request method.');
       }
       responseObservable = httpRequest(this._backend, url);
     } else {
-      throw makeTypeError('First argument must be a url string or Request instance.');
+      throw new Error('First argument must be a url string or Request instance.');
     }
     return responseObservable;
   }

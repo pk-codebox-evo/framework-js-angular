@@ -20,7 +20,7 @@ const NOT_SUPPORTED: any = 'NOT_SUPPORTED';
 
 
 export class UpgradeNg1ComponentAdapterBuilder {
-  type: Type;
+  type: Type<any>;
   inputs: string[] = [];
   inputsRename: string[] = [];
   outputs: string[] = [];
@@ -86,7 +86,10 @@ export class UpgradeNg1ComponentAdapterBuilder {
         if ((<any>context).hasOwnProperty(name)) {
           var localName = context[name];
           var type = localName.charAt(0);
-          localName = localName.substr(1) || name;
+          var typeOptions = localName.charAt(1);
+          localName = typeOptions === '?' ? localName.substr(2) : localName.substr(1);
+          localName = localName || name;
+
           var outputName = 'output_' + name;
           var outputNameRename = outputName + ': ' + name;
           var outputNameRenameChange = outputName + ': ' + name + 'Change';
@@ -127,7 +130,7 @@ export class UpgradeNg1ComponentAdapterBuilder {
 
   compileTemplate(
       compile: angular.ICompileService, templateCache: angular.ITemplateCacheService,
-      httpBackend: angular.IHttpBackendService): Promise<any> {
+      httpBackend: angular.IHttpBackendService): Promise<angular.ILinkFn> {
     if (this.directive.template !== undefined) {
       this.linkFn = compileHtml(
           typeof this.directive.template === 'function' ? this.directive.template() :
@@ -162,10 +165,13 @@ export class UpgradeNg1ComponentAdapterBuilder {
     }
   }
 
+  /**
+   * Upgrade ng1 components into Angular 2.
+   */
   static resolve(
       exportedComponents: {[name: string]: UpgradeNg1ComponentAdapterBuilder},
-      injector: angular.IInjectorService): Promise<any> {
-    var promises: any[] /** TODO #9100 */ = [];
+      injector: angular.IInjectorService): Promise<angular.ILinkFn[]> {
+    var promises: Promise<angular.ILinkFn>[] = [];
     var compile: angular.ICompileService = injector.get(NG1_COMPILE);
     var templateCache: angular.ITemplateCacheService = injector.get(NG1_TEMPLATE_CACHE);
     var httpBackend: angular.IHttpBackendService = injector.get(NG1_HTTP_BACKEND);
@@ -176,7 +182,8 @@ export class UpgradeNg1ComponentAdapterBuilder {
         exportedComponent.directive = exportedComponent.extractDirective(injector);
         exportedComponent.$controller = $controller;
         exportedComponent.extractBindings();
-        var promise = exportedComponent.compileTemplate(compile, templateCache, httpBackend);
+        var promise: Promise<angular.ILinkFn> =
+            exportedComponent.compileTemplate(compile, templateCache, httpBackend);
         if (promise) promises.push(promise);
       }
     }

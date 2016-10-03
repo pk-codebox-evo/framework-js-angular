@@ -6,202 +6,143 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {beforeEach, ddescribe, describe, expect, iit, inject, it, xit,} from '@angular/core/testing/testing_internal';
-import {TestComponentBuilder} from '@angular/core/testing';
-import {AsyncTestCompleter} from '@angular/core/testing/testing_internal';
-import {Component, Directive, TemplateRef, ContentChildren, QueryList} from '@angular/core';
-import {NgTemplateOutlet} from '@angular/common';
+import {CommonModule} from '@angular/common';
+import {Component, ContentChildren, Directive, NO_ERRORS_SCHEMA, QueryList, TemplateRef} from '@angular/core';
+import {ComponentFixture, TestBed, async} from '@angular/core/testing';
+import {expect} from '@angular/platform-browser/testing/matchers';
 
 export function main() {
-  describe('insert', () => {
-    it('should do nothing if templateRef is null',
-       inject(
-           [TestComponentBuilder, AsyncTestCompleter],
-           (tcb: TestComponentBuilder, async: AsyncTestCompleter) => {
-             var template = `<template [ngTemplateOutlet]="null"></template>`;
-             tcb.overrideTemplate(TestComponent, template)
-                 .createAsync(TestComponent)
-                 .then((fixture) => {
+  describe('NgTemplateOutlet', () => {
+    let fixture: ComponentFixture<any>;
 
-                   fixture.detectChanges();
-                   expect(fixture.nativeElement).toHaveText('');
+    function setTplRef(value: any): void { fixture.componentInstance.currentTplRef = value; }
 
-                   async.done();
-                 });
-           }));
+    function detectChangesAndExpectText(text: string): void {
+      fixture.detectChanges();
+      expect(fixture.debugElement.nativeElement).toHaveText(text);
+    }
 
-    it('should insert content specified by TemplateRef',
-       inject(
-           [TestComponentBuilder, AsyncTestCompleter],
-           (tcb: TestComponentBuilder, async: AsyncTestCompleter) => {
-             var template =
-                 `<tpl-refs #refs="tplRefs"><template>foo</template></tpl-refs><template [ngTemplateOutlet]="currentTplRef"></template>`;
-             tcb.overrideTemplate(TestComponent, template)
-                 .createAsync(TestComponent)
-                 .then((fixture) => {
+    afterEach(() => { fixture = null; });
 
-                   fixture.detectChanges();
-                   expect(fixture.nativeElement).toHaveText('');
+    beforeEach(() => {
+      TestBed.configureTestingModule({
+        declarations: [
+          TestComponent,
+          CaptureTplRefs,
+        ],
+        imports: [CommonModule],
+      });
+    });
 
-                   var refs = fixture.debugElement.children[0].references['refs'];
+    it('should do nothing if templateRef is null', async(() => {
+         const template = `<template [ngTemplateOutlet]="null"></template>`;
+         fixture = createTestComponent(template);
 
-                   fixture.componentInstance.currentTplRef = refs.tplRefs.first;
-                   fixture.detectChanges();
-                   expect(fixture.nativeElement).toHaveText('foo');
+         detectChangesAndExpectText('');
+       }));
 
-                   async.done();
-                 });
-           }));
+    it('should insert content specified by TemplateRef', async(() => {
+         const template =
+             `<tpl-refs #refs="tplRefs"><template>foo</template></tpl-refs><template [ngTemplateOutlet]="currentTplRef"></template>`;
+         fixture = createTestComponent(template);
 
-    it('should clear content if TemplateRef becomes null',
-       inject(
-           [TestComponentBuilder, AsyncTestCompleter],
-           (tcb: TestComponentBuilder, async: AsyncTestCompleter) => {
-             var template =
-                 `<tpl-refs #refs="tplRefs"><template>foo</template></tpl-refs><template [ngTemplateOutlet]="currentTplRef"></template>`;
-             tcb.overrideTemplate(TestComponent, template)
-                 .createAsync(TestComponent)
-                 .then((fixture) => {
+         detectChangesAndExpectText('');
 
-                   fixture.detectChanges();
-                   var refs = fixture.debugElement.children[0].references['refs'];
+         const refs = fixture.debugElement.children[0].references['refs'];
 
-                   fixture.componentInstance.currentTplRef = refs.tplRefs.first;
-                   fixture.detectChanges();
-                   expect(fixture.nativeElement).toHaveText('foo');
+         setTplRef(refs.tplRefs.first);
+         detectChangesAndExpectText('foo');
+       }));
 
-                   fixture.componentInstance.currentTplRef = null;
-                   fixture.detectChanges();
-                   expect(fixture.nativeElement).toHaveText('');
+    it('should clear content if TemplateRef becomes null', async(() => {
+         const template =
+             `<tpl-refs #refs="tplRefs"><template>foo</template></tpl-refs><template [ngTemplateOutlet]="currentTplRef"></template>`;
+         fixture = createTestComponent(template);
+         fixture.detectChanges();
+         const refs = fixture.debugElement.children[0].references['refs'];
 
-                   async.done();
-                 });
-           }));
+         setTplRef(refs.tplRefs.first);
+         detectChangesAndExpectText('foo');
 
-    it('should swap content if TemplateRef changes',
-       inject(
-           [TestComponentBuilder, AsyncTestCompleter],
-           (tcb: TestComponentBuilder, async: AsyncTestCompleter) => {
-             var template =
-                 `<tpl-refs #refs="tplRefs"><template>foo</template><template>bar</template></tpl-refs><template [ngTemplateOutlet]="currentTplRef"></template>`;
-             tcb.overrideTemplate(TestComponent, template)
-                 .createAsync(TestComponent)
-                 .then((fixture) => {
+         setTplRef(null);
+         detectChangesAndExpectText('');
+       }));
 
-                   fixture.detectChanges();
-                   var refs = fixture.debugElement.children[0].references['refs'];
+    it('should swap content if TemplateRef changes', async(() => {
+         const template =
+             `<tpl-refs #refs="tplRefs"><template>foo</template><template>bar</template></tpl-refs><template [ngTemplateOutlet]="currentTplRef"></template>`;
+         fixture = createTestComponent(template);
 
-                   fixture.componentInstance.currentTplRef = refs.tplRefs.first;
-                   fixture.detectChanges();
-                   expect(fixture.nativeElement).toHaveText('foo');
+         fixture.detectChanges();
+         const refs = fixture.debugElement.children[0].references['refs'];
 
-                   fixture.componentInstance.currentTplRef = refs.tplRefs.last;
-                   fixture.detectChanges();
-                   expect(fixture.nativeElement).toHaveText('bar');
+         setTplRef(refs.tplRefs.first);
+         detectChangesAndExpectText('foo');
 
-                   async.done();
-                 });
-           }));
+         setTplRef(refs.tplRefs.last);
+         detectChangesAndExpectText('bar');
+       }));
 
-    it('should display template if context is null',
-       inject(
-           [TestComponentBuilder, AsyncTestCompleter],
-           (tcb: TestComponentBuilder, async: AsyncTestCompleter) => {
-             var template =
-                 `<tpl-refs #refs="tplRefs"><template>foo</template></tpl-refs><template [ngTemplateOutlet]="currentTplRef" [ngOutletContext]="null"></template>`;
-             tcb.overrideTemplate(TestComponent, template)
-                 .createAsync(TestComponent)
-                 .then((fixture) => {
+    it('should display template if context is null', async(() => {
+         const template =
+             `<tpl-refs #refs="tplRefs"><template>foo</template></tpl-refs><template [ngTemplateOutlet]="currentTplRef" [ngOutletContext]="null"></template>`;
+         fixture = createTestComponent(template);
+         detectChangesAndExpectText('');
 
-                   fixture.detectChanges();
-                   expect(fixture.nativeElement).toHaveText('');
+         const refs = fixture.debugElement.children[0].references['refs'];
 
-                   var refs = fixture.debugElement.children[0].references['refs'];
+         setTplRef(refs.tplRefs.first);
+         detectChangesAndExpectText('foo');
+       }));
 
-                   fixture.componentInstance.currentTplRef = refs.tplRefs.first;
-                   fixture.detectChanges();
-                   expect(fixture.nativeElement).toHaveText('foo');
+    it('should reflect initial context and changes', async(() => {
+         const template =
+             `<tpl-refs #refs="tplRefs"><template let-foo="foo"><span>{{foo}}</span></template></tpl-refs><template [ngTemplateOutlet]="currentTplRef" [ngOutletContext]="context"></template>`;
+         fixture = createTestComponent(template);
 
-                   async.done();
-                 });
-           }));
+         fixture.detectChanges();
 
-    it('should reflect initial context and changes',
-       inject(
-           [TestComponentBuilder, AsyncTestCompleter],
-           (tcb: TestComponentBuilder, async: AsyncTestCompleter) => {
-             var template =
-                 `<tpl-refs #refs="tplRefs"><template let-foo="foo"><span>{{foo}}</span></template></tpl-refs><template [ngTemplateOutlet]="currentTplRef" [ngOutletContext]="context"></template>`;
-             tcb.overrideTemplate(TestComponent, template)
-                 .createAsync(TestComponent)
-                 .then((fixture) => {
-                   fixture.detectChanges();
+         const refs = fixture.debugElement.children[0].references['refs'];
+         setTplRef(refs.tplRefs.first);
 
-                   var refs = fixture.debugElement.children[0].references['refs'];
-                   fixture.componentInstance.currentTplRef = refs.tplRefs.first;
+         detectChangesAndExpectText('bar');
 
-                   fixture.detectChanges();
-                   expect(fixture.debugElement.nativeElement).toHaveText('bar');
+         fixture.componentInstance.context.foo = 'alter-bar';
 
-                   fixture.componentInstance.context.foo = 'alter-bar';
+         detectChangesAndExpectText('alter-bar');
+       }));
 
-                   fixture.detectChanges();
-                   expect(fixture.debugElement.nativeElement).toHaveText('alter-bar');
+    it('should reflect user defined $implicit property in the context', async(() => {
+         const template =
+             `<tpl-refs #refs="tplRefs"><template let-ctx><span>{{ctx.foo}}</span></template></tpl-refs><template [ngTemplateOutlet]="currentTplRef" [ngOutletContext]="context"></template>`;
+         fixture = createTestComponent(template);
 
-                   async.done();
-                 });
-           }));
+         fixture.detectChanges();
 
-    it('should reflect user defined $implicit property in the context',
-       inject(
-           [TestComponentBuilder, AsyncTestCompleter],
-           (tcb: TestComponentBuilder, async: AsyncTestCompleter) => {
-             var template =
-                 `<tpl-refs #refs="tplRefs"><template let-ctx><span>{{ctx.foo}}</span></template></tpl-refs><template [ngTemplateOutlet]="currentTplRef" [ngOutletContext]="context"></template>`;
-             tcb.overrideTemplate(TestComponent, template)
-                 .createAsync(TestComponent)
-                 .then((fixture) => {
-                   fixture.detectChanges();
+         const refs = fixture.debugElement.children[0].references['refs'];
+         setTplRef(refs.tplRefs.first);
 
-                   var refs = fixture.debugElement.children[0].references['refs'];
-                   fixture.componentInstance.currentTplRef = refs.tplRefs.first;
+         fixture.componentInstance.context = {$implicit: fixture.componentInstance.context};
+         detectChangesAndExpectText('bar');
+       }));
 
-                   fixture.componentInstance.context = {
-                     $implicit: fixture.componentInstance.context
-                   };
-                   fixture.detectChanges();
-                   expect(fixture.debugElement.nativeElement).toHaveText('bar');
+    it('should reflect context re-binding', async(() => {
+         const template =
+             `<tpl-refs #refs="tplRefs"><template let-shawshank="shawshank"><span>{{shawshank}}</span></template></tpl-refs><template [ngTemplateOutlet]="currentTplRef" [ngOutletContext]="context"></template>`;
+         fixture = createTestComponent(template);
 
-                   async.done();
-                 });
-           }));
+         fixture.detectChanges();
 
-    it('should reflect context re-binding',
-       inject(
-           [TestComponentBuilder, AsyncTestCompleter],
-           (tcb: TestComponentBuilder, async: AsyncTestCompleter) => {
-             var template =
-                 `<tpl-refs #refs="tplRefs"><template let-shawshank="shawshank"><span>{{shawshank}}</span></template></tpl-refs><template [ngTemplateOutlet]="currentTplRef" [ngOutletContext]="context"></template>`;
-             tcb.overrideTemplate(TestComponent, template)
-                 .createAsync(TestComponent)
-                 .then((fixture) => {
-                   fixture.detectChanges();
+         const refs = fixture.debugElement.children[0].references['refs'];
+         setTplRef(refs.tplRefs.first);
+         fixture.componentInstance.context = {shawshank: 'brooks'};
 
-                   var refs = fixture.debugElement.children[0].references['refs'];
-                   fixture.componentInstance.currentTplRef = refs.tplRefs.first;
-                   fixture.componentInstance.context = {shawshank: 'brooks'};
+         detectChangesAndExpectText('brooks');
 
-                   fixture.detectChanges();
-                   expect(fixture.debugElement.nativeElement).toHaveText('brooks');
+         fixture.componentInstance.context = {shawshank: 'was here'};
 
-                   fixture.componentInstance.context = {shawshank: 'was here'};
-
-                   fixture.detectChanges();
-                   expect(fixture.debugElement.nativeElement).toHaveText('was here');
-
-                   async.done();
-                 });
-           }));
+         detectChangesAndExpectText('was here');
+       }));
   });
 }
 
@@ -211,8 +152,14 @@ class CaptureTplRefs {
   @ContentChildren(TemplateRef) tplRefs: QueryList<TemplateRef<any>>;
 }
 
-@Component({selector: 'test-cmp', directives: [NgTemplateOutlet, CaptureTplRefs], template: ''})
+@Component({selector: 'test-cmp', template: ''})
 class TestComponent {
   currentTplRef: TemplateRef<any>;
   context: any = {foo: 'bar'};
+}
+
+function createTestComponent(template: string): ComponentFixture<TestComponent> {
+  return TestBed.overrideComponent(TestComponent, {set: {template: template}})
+      .configureTestingModule({schemas: [NO_ERRORS_SCHEMA]})
+      .createComponent(TestComponent);
 }

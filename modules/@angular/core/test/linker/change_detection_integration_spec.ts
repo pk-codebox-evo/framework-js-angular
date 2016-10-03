@@ -6,69 +6,65 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {AsyncPipe, NgFor} from '@angular/common';
 import {ElementSchemaRegistry} from '@angular/compiler/src/schema/element_schema_registry';
-import {TEST_COMPILER_PROVIDERS} from '@angular/compiler/test/test_bindings';
-import {MockSchemaRegistry} from '@angular/compiler/testing';
-import {AfterContentChecked, AfterContentInit, AfterViewChecked, AfterViewInit, ChangeDetectionStrategy, ChangeDetectorRef, Component, DebugElement, Directive, DoCheck, Injectable, Input, OnChanges, OnDestroy, OnInit, Output, Pipe, PipeTransform, RenderComponentType, Renderer, RootRenderer, SimpleChange, SimpleChanges, TemplateRef, ViewContainerRef, ViewMetadata, WrappedValue, forwardRef} from '@angular/core';
+import {TEST_COMPILER_PROVIDERS} from '@angular/compiler/testing/test_bindings';
+import {AfterContentChecked, AfterContentInit, AfterViewChecked, AfterViewInit, ChangeDetectionStrategy, ChangeDetectorRef, Component, DebugElement, Directive, DoCheck, Injectable, Input, OnChanges, OnDestroy, OnInit, Output, Pipe, PipeTransform, RenderComponentType, Renderer, RootRenderer, SimpleChange, SimpleChanges, TemplateRef, Type, ViewContainerRef, WrappedValue} from '@angular/core';
 import {DebugDomRenderer} from '@angular/core/src/debug/debug_renderer';
-import {TestComponentBuilder} from '@angular/core/testing';
-import {ComponentFixture, configureCompiler, configureModule, fakeAsync, flushMicrotasks, tick} from '@angular/core/testing';
-import {afterEach, beforeEach, beforeEachProviders, ddescribe, describe, expect, iit, inject, it, xit} from '@angular/core/testing/testing_internal';
+import {ComponentFixture, TestBed, fakeAsync} from '@angular/core/testing';
 import {By} from '@angular/platform-browser/src/dom/debug/by';
 import {getDOM} from '@angular/platform-browser/src/dom/dom_adapter';
 import {DomRootRenderer} from '@angular/platform-browser/src/dom/dom_renderer';
 
+import {MockSchemaRegistry} from '../../../compiler/testing/index';
 import {EventEmitter} from '../../src/facade/async';
 import {StringMapWrapper} from '../../src/facade/collection';
-import {BaseException} from '../../src/facade/exceptions';
-import {ConcreteType, IS_DART, NumberWrapper, Type, isBlank} from '../../src/facade/lang';
+import {NumberWrapper} from '../../src/facade/lang';
 
 export function main() {
-  let tcb: TestComponentBuilder;
   let elSchema: MockSchemaRegistry;
   let renderLog: RenderLog;
   let directiveLog: DirectiveLog;
 
   function createCompFixture<T>(template: string): ComponentFixture<TestComponent>;
-  function createCompFixture<T>(template: string, compType: ConcreteType<T>): ComponentFixture<T>;
+  function createCompFixture<T>(template: string, compType: Type<T>): ComponentFixture<T>;
   function createCompFixture<T>(
-      template: string, compType: ConcreteType<T>, _tcb: TestComponentBuilder): ComponentFixture<T>;
-  function createCompFixture<T>(
-      template: string, compType: ConcreteType<T> = <any>TestComponent,
-      _tcb: TestComponentBuilder = null): ComponentFixture<T> {
-    if (isBlank(_tcb)) {
-      _tcb = tcb;
-    }
-    return _tcb
-        .overrideView(
-            compType,
-            new ViewMetadata({template: template, directives: ALL_DIRECTIVES, pipes: ALL_PIPES}))
-        .createFakeAsync(compType);
+      template: string, compType: Type<T> = <any>TestComponent): ComponentFixture<T> {
+    TestBed.overrideComponent(compType, {set: new Component({template})});
+
+    initHelpers();
+
+    return TestBed.createComponent(compType);
   }
 
-  function queryDirs(el: DebugElement, dirType: Type): any {
+  function initHelpers(): void {
+    elSchema = TestBed.get(ElementSchemaRegistry);
+    renderLog = TestBed.get(RenderLog);
+    directiveLog = TestBed.get(DirectiveLog);
+    elSchema.existingProperties['someProp'] = true;
+  }
+
+  function queryDirs(el: DebugElement, dirType: Type<any>): any {
     var nodes = el.queryAllNodes(By.directive(dirType));
     return nodes.map(node => node.injector.get(dirType));
   }
 
   function _bindSimpleProp<T>(bindAttr: string): ComponentFixture<TestComponent>;
-  function _bindSimpleProp<T>(bindAttr: string, compType: ConcreteType<T>): ComponentFixture<T>;
+  function _bindSimpleProp<T>(bindAttr: string, compType: Type<T>): ComponentFixture<T>;
   function _bindSimpleProp<T>(
-      bindAttr: string, compType: ConcreteType<T> = <any>TestComponent): ComponentFixture<T> {
+      bindAttr: string, compType: Type<T> = <any>TestComponent): ComponentFixture<T> {
     var template = `<div ${bindAttr}></div>`;
     return createCompFixture(template, compType);
   }
 
   function _bindSimpleValue(expression: any): ComponentFixture<TestComponent>;
-  function _bindSimpleValue<T>(expression: any, compType: ConcreteType<T>): ComponentFixture<T>;
+  function _bindSimpleValue<T>(expression: any, compType: Type<T>): ComponentFixture<T>;
   function _bindSimpleValue<T>(
-      expression: any, compType: ConcreteType<T> = <any>TestComponent): ComponentFixture<T> {
+      expression: any, compType: Type<T> = <any>TestComponent): ComponentFixture<T> {
     return _bindSimpleProp(`[someProp]='${expression}'`, compType);
   }
 
   function _bindAndCheckSimpleValue(
-      expression: any, compType: ConcreteType<any> = TestComponent): string[] {
+      expression: any, compType: Type<any> = TestComponent): string[] {
     const ctx = _bindSimpleValue(expression, compType);
     ctx.detectChanges(false);
     return renderLog.log;
@@ -79,26 +75,38 @@ export function main() {
     if (!getDOM().supportsDOMEvents()) return;
 
     beforeEach(() => {
-      configureCompiler({providers: TEST_COMPILER_PROVIDERS});
-      configureModule({
+      TestBed.configureCompiler({providers: TEST_COMPILER_PROVIDERS});
+      TestBed.configureTestingModule({
+        declarations: [
+          TestData,
+          TestDirective,
+          TestComponent,
+          AnotherComponent,
+          TestLocals,
+          CompWithRef,
+          EmitterDirective,
+          PushComp,
+          OrderCheckDirective2,
+          OrderCheckDirective0,
+          OrderCheckDirective1,
+          Gh9882,
+          Uninitialized,
+          Person,
+          PersonHolder,
+          PersonHolderHolder,
+          CountingPipe,
+          CountingImpurePipe,
+          MultiArgPipe,
+          PipeWithOnDestroy,
+          IdentityPipe,
+          WrappedPipe,
+        ],
         providers:
             [RenderLog, DirectiveLog, {provide: RootRenderer, useClass: LoggingRootRenderer}]
       });
     });
 
-    beforeEach(inject(
-        [TestComponentBuilder, ElementSchemaRegistry, RenderLog, DirectiveLog],
-        (_tcb: TestComponentBuilder, _elSchema: MockSchemaRegistry, _renderLog: RenderLog,
-         _directiveLog: DirectiveLog) => {
-          tcb = _tcb;
-          elSchema = _elSchema;
-          renderLog = _renderLog;
-          directiveLog = _directiveLog;
-          elSchema.existingProperties['someProp'] = true;
-        }));
-
     describe('expressions', () => {
-
       it('should support literals',
          fakeAsync(() => { expect(_bindAndCheckSimpleValue(10)).toEqual(['someProp=10']); }));
 
@@ -134,8 +142,7 @@ export function main() {
          }));
 
       it('should support == operations on coerceible', fakeAsync(() => {
-           var expectedValue = IS_DART ? 'false' : 'true';
-           expect(_bindAndCheckSimpleValue('1 == true')).toEqual([`someProp=${expectedValue}`]);
+           expect(_bindAndCheckSimpleValue('1 == true')).toEqual([`someProp=true`]);
          }));
 
       it('should support === operations on identical', fakeAsync(() => {
@@ -597,8 +604,9 @@ export function main() {
            }));
 
         it('should throw when trying to assign to a local', fakeAsync(() => {
-             expect(() => {_bindSimpleProp('(event)="$event=1"')})
-                 .toThrowError(new RegExp('Cannot assign to a reference or variable!'));
+             expect(() => {
+               _bindSimpleProp('(event)="$event=1"');
+             }).toThrowError(new RegExp('Cannot assign to a reference or variable!'));
            }));
 
         it('should support short-circuiting', fakeAsync(() => {
@@ -625,7 +633,7 @@ export function main() {
       describe('reading directives', () => {
         it('should read directive properties', fakeAsync(() => {
              var ctx = createCompFixture(
-                 '<div testDirective [a]="42" ref-dir="testDirective" [someProp]="dir.a"></div>')
+                 '<div testDirective [a]="42" ref-dir="testDirective" [someProp]="dir.a"></div>');
              ctx.detectChanges(false);
              expect(renderLog.loggedValues).toEqual([42]);
            }));
@@ -646,10 +654,16 @@ export function main() {
 
     describe('lifecycle', () => {
       function createCompWithContentAndViewChild(): ComponentFixture<any> {
+        TestBed.overrideComponent(AnotherComponent, {
+          set: new Component({
+            selector: 'other-cmp',
+            template: '<div testDirective="viewChild"></div>',
+          })
+        });
+
         return createCompFixture(
             '<div testDirective="parent"><div *ngIf="true" testDirective="contentChild"></div><other-cmp></other-cmp></div>',
-            TestComponent,
-            tcb.overrideTemplate(AnotherComponent, '<div testDirective="viewChild"></div>'));
+            TestComponent);
       }
 
       describe('ngOnInit', () => {
@@ -709,7 +723,7 @@ export function main() {
              try {
                ctx.detectChanges(false);
              } catch (e) {
-               throw new BaseException('Second detectChanges() should not have run detection.');
+               throw new Error('Second detectChanges() should not have run detection.');
              }
              expect(directiveLog.filter(['ngOnInit'])).toEqual([]);
            }));
@@ -752,7 +766,6 @@ export function main() {
         it('should be called after processing the content children but before the view children',
            fakeAsync(() => {
              var ctx = createCompWithContentAndViewChild();
-
              ctx.detectChanges(false);
 
              expect(directiveLog.filter(['ngDoCheck', 'ngAfterContentInit'])).toEqual([
@@ -807,7 +820,7 @@ export function main() {
              try {
                ctx.detectChanges(false);
              } catch (e) {
-               throw new BaseException('Second detectChanges() should not have run detection.');
+               throw new Error('Second detectChanges() should not have run detection.');
              }
              expect(directiveLog.filter(['ngAfterContentInit'])).toEqual([]);
            }));
@@ -921,7 +934,7 @@ export function main() {
              try {
                ctx.detectChanges(false);
              } catch (e) {
-               throw new BaseException('Second detectChanges() should not have run detection.');
+               throw new Error('Second detectChanges() should not have run detection.');
              }
              expect(directiveLog.filter(['ngAfterViewInit'])).toEqual([]);
            }));
@@ -989,11 +1002,15 @@ export function main() {
            }));
 
         it('should be called after processing the content and view children', fakeAsync(() => {
+             TestBed.overrideComponent(AnotherComponent, {
+               set: new Component(
+                   {selector: 'other-cmp', template: '<div testDirective="viewChild"></div>'})
+             });
+
              var ctx = createCompFixture(
                  '<div testDirective="parent"><div *ngFor="let x of [0,1]" testDirective="contentChild{{x}}"></div>' +
                      '<other-cmp></other-cmp></div>',
-                 TestComponent,
-                 tcb.overrideTemplate(AnotherComponent, '<div testDirective="viewChild"></div>'));
+                 TestComponent);
 
              ctx.detectChanges(false);
              ctx.destroy();
@@ -1025,6 +1042,22 @@ export function main() {
 
              expect(directiveLog.filter(['ngOnDestroy'])).toEqual([
                'pipeWithOnDestroy.ngOnDestroy'
+             ]);
+           }));
+
+        it('should call ngOnDestroy on an injectable class', fakeAsync(() => {
+             TestBed.overrideDirective(
+                 TestDirective, {set: {providers: [InjectableWithLifecycle]}});
+
+             var ctx = createCompFixture('<div testDirective="dir"></div>', TestComponent);
+
+             ctx.debugElement.children[0].injector.get(InjectableWithLifecycle);
+             ctx.detectChanges(false);
+
+             ctx.destroy();
+
+             expect(directiveLog.filter(['ngOnDestroy'])).toEqual([
+               'dir.ngOnDestroy', 'injectable.ngOnDestroy'
              ]);
            }));
       });
@@ -1129,31 +1162,6 @@ export function main() {
   });
 }
 
-const ALL_DIRECTIVES = /*@ts2dart_const*/[
-  forwardRef(() => TestDirective),
-  forwardRef(() => TestComponent),
-  forwardRef(() => AnotherComponent),
-  forwardRef(() => TestLocals),
-  forwardRef(() => CompWithRef),
-  forwardRef(() => EmitterDirective),
-  forwardRef(() => PushComp),
-  forwardRef(() => OrderCheckDirective2),
-  forwardRef(() => OrderCheckDirective0),
-  forwardRef(() => OrderCheckDirective1),
-  forwardRef(() => Gh9882),
-  NgFor,
-];
-
-const ALL_PIPES = /*@ts2dart_const*/[
-  forwardRef(() => CountingPipe),
-  forwardRef(() => CountingImpurePipe),
-  forwardRef(() => MultiArgPipe),
-  forwardRef(() => PipeWithOnDestroy),
-  forwardRef(() => IdentityPipe),
-  forwardRef(() => WrappedPipe),
-  AsyncPipe,
-];
-
 @Injectable()
 class RenderLog {
   log: string[] = [];
@@ -1254,23 +1262,21 @@ class MultiArgPipe implements PipeTransform {
   }
 }
 
-@Component({selector: 'test-cmp', template: '', directives: ALL_DIRECTIVES, pipes: ALL_PIPES})
+@Component({selector: 'test-cmp', template: 'empty'})
 class TestComponent {
   value: any;
   a: any;
   b: any;
 }
 
-@Component({selector: 'other-cmp', directives: ALL_DIRECTIVES, pipes: ALL_PIPES, template: ''})
+@Component({selector: 'other-cmp', template: 'empty'})
 class AnotherComponent {
 }
 
 @Component({
   selector: 'comp-with-ref',
   template: '<div (event)="noop()" emitterDirective></div>{{value}}',
-  host: {'event': 'noop()'},
-  directives: ALL_DIRECTIVES,
-  pipes: ALL_PIPES
+  host: {'event': 'noop()'}
 })
 class CompWithRef {
   @Input() public value: any;
@@ -1284,8 +1290,6 @@ class CompWithRef {
   selector: 'push-cmp',
   template: '<div (event)="noop()" emitterDirective></div>{{value}}{{renderIncrement}}',
   host: {'(event)': 'noop()'},
-  directives: ALL_DIRECTIVES,
-  pipes: ALL_PIPES,
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 class PushComp {
@@ -1337,7 +1341,7 @@ class TestDirective implements OnInit, DoCheck, OnChanges, AfterContentInit, Aft
   ngOnInit() {
     this.log.add(this.name, 'ngOnInit');
     if (this.throwOn == 'ngOnInit') {
-      throw new BaseException('Boom!');
+      throw new Error('Boom!');
     }
   }
 
@@ -1347,44 +1351,52 @@ class TestDirective implements OnInit, DoCheck, OnChanges, AfterContentInit, Aft
     StringMapWrapper.forEach(changes, (c: SimpleChange, key: string) => r[key] = c.currentValue);
     this.changes = r;
     if (this.throwOn == 'ngOnChanges') {
-      throw new BaseException('Boom!');
+      throw new Error('Boom!');
     }
   }
 
   ngAfterContentInit() {
     this.log.add(this.name, 'ngAfterContentInit');
     if (this.throwOn == 'ngAfterContentInit') {
-      throw new BaseException('Boom!');
+      throw new Error('Boom!');
     }
   }
 
   ngAfterContentChecked() {
     this.log.add(this.name, 'ngAfterContentChecked');
     if (this.throwOn == 'ngAfterContentChecked') {
-      throw new BaseException('Boom!');
+      throw new Error('Boom!');
     }
   }
 
   ngAfterViewInit() {
     this.log.add(this.name, 'ngAfterViewInit');
     if (this.throwOn == 'ngAfterViewInit') {
-      throw new BaseException('Boom!');
+      throw new Error('Boom!');
     }
   }
 
   ngAfterViewChecked() {
     this.log.add(this.name, 'ngAfterViewChecked');
     if (this.throwOn == 'ngAfterViewChecked') {
-      throw new BaseException('Boom!');
+      throw new Error('Boom!');
     }
   }
 
   ngOnDestroy() {
     this.log.add(this.name, 'ngOnDestroy');
     if (this.throwOn == 'ngOnDestroy') {
-      throw new BaseException('Boom!');
+      throw new Error('Boom!');
     }
   }
+}
+
+@Injectable()
+class InjectableWithLifecycle {
+  name = 'injectable';
+  constructor(public log: DirectiveLog) {}
+
+  ngOnDestroy() { this.log.add(this.name, 'ngOnDestroy'); }
 }
 
 @Directive({selector: '[orderCheck0]'})
@@ -1437,7 +1449,7 @@ class TestLocals {
   }
 }
 
-@Component({selector: 'root'})
+@Component({selector: 'root', template: 'emtpy'})
 class Person {
   age: number;
   name: string;
@@ -1479,20 +1491,20 @@ class Address {
 
   set zipcode(v) { this._zipcode = v; }
 
-  toString(): string { return isBlank(this.city) ? '-' : this.city }
+  toString(): string { return this.city || '-'; }
 }
 
-@Component({selector: 'root'})
+@Component({selector: 'root', template: 'empty'})
 class Uninitialized {
   value: any = null;
 }
 
-@Component({selector: 'root'})
+@Component({selector: 'root', template: 'empty'})
 class TestData {
   public a: any;
 }
 
-@Component({selector: 'root'})
+@Component({selector: 'root', template: 'empty'})
 class TestDataWithGetter {
   public fn: Function;
 
@@ -1503,10 +1515,10 @@ class Holder<T> {
   value: T;
 }
 
-@Component({selector: 'root'})
+@Component({selector: 'root', template: 'empty'})
 class PersonHolder extends Holder<Person> {
 }
 
-@Component({selector: 'root'})
+@Component({selector: 'root', template: 'empty'})
 class PersonHolderHolder extends Holder<Holder<Person>> {
 }

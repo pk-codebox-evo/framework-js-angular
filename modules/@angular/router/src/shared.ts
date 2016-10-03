@@ -7,18 +7,26 @@
  */
 
 /**
- * Name of the primary outlet.
- * @type {string}
+ * @whatItDoes Name of the primary outlet.
  *
- * @experimental
+ * @stable
  */
-export const PRIMARY_OUTLET = 'PRIMARY_OUTLET';
+export const PRIMARY_OUTLET = 'primary';
 
 /**
  * A collection of parameters.
  *
- * @experimental
+ * @stable
  */
 export type Params = {
   [key: string]: any
 };
+
+export class NavigationCancelingError extends Error {
+  public stack: any;
+  constructor(public message: string) {
+    super(message);
+    this.stack = (<any>new Error(message)).stack;
+  }
+  toString(): string { return this.message; }
+}

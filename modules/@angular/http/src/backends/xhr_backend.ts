@@ -53,9 +53,9 @@ export class XHRConnection implements Connection {
       // load event handler
       let onLoad = () => {
         // responseText is the old-school way of retrieving response (supported by IE8 & 9)
-        // response/responseType properties were introduced in XHR Level2 spec (supported by
-        // IE10)
-        let body = isPresent(_xhr.response) ? _xhr.response : _xhr.responseText;
+        // response/responseType properties were introduced in ResourceLoader Level2 spec (supported
+        // by IE10)
+        let body = _xhr.response === undefined ? _xhr.responseText : _xhr.response;
         // Implicitly strip a potential XSSI prefix.
         if (isString(body)) body = body.replace(XSSI_PREFIX, '');
         let headers = Headers.fromResponseHeaderString(_xhr.getAllResponseHeaders());
@@ -120,6 +120,9 @@ export class XHRConnection implements Connection {
           case ResponseContentType.Text:
             _xhr.responseType = 'text';
             break;
+          case ResponseContentType.Blob:
+            _xhr.responseType = 'blob';
+            break;
           default:
             throw new Error('The selected responseType is not supported');
         }
@@ -149,18 +152,18 @@ export class XHRConnection implements Connection {
       case ContentType.NONE:
         break;
       case ContentType.JSON:
-        _xhr.setRequestHeader('Content-Type', 'application/json');
+        _xhr.setRequestHeader('content-type', 'application/json');
         break;
       case ContentType.FORM:
-        _xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded;charset=UTF-8');
+        _xhr.setRequestHeader('content-type', 'application/x-www-form-urlencoded;charset=UTF-8');
         break;
       case ContentType.TEXT:
-        _xhr.setRequestHeader('Content-Type', 'text/plain');
+        _xhr.setRequestHeader('content-type', 'text/plain');
         break;
       case ContentType.BLOB:
         var blob = req.blob();
         if (blob.type) {
-          _xhr.setRequestHeader('Content-Type', blob.type);
+          _xhr.setRequestHeader('content-type', blob.type);
         }
         break;
     }

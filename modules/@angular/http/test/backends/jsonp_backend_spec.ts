@@ -6,24 +6,18 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {afterEach, beforeEach, ddescribe, describe, expect, iit, inject, it, xit,} from '@angular/core/testing/testing_internal';
-import {AsyncTestCompleter, SpyObject} from '@angular/core/testing/testing_internal';
-import {ObservableWrapper} from '../../src/facade/async';
+import {ReflectiveInjector} from '@angular/core';
+import {AsyncTestCompleter, SpyObject, afterEach, beforeEach, describe, inject, it} from '@angular/core/testing/testing_internal';
+import {expect} from '@angular/platform-browser/testing/matchers';
 import {BrowserJsonp} from '../../src/backends/browser_jsonp';
-import {JSONPConnection, JSONPConnection_, JSONPBackend, JSONPBackend_} from '../../src/backends/jsonp_backend';
-import {provide, Injector, ReflectiveInjector} from '@angular/core';
-import {isPresent, StringWrapper} from '../../src/facade/lang';
-import {TimerWrapper} from '../../src/facade/async';
-import {Request} from '../../src/static_request';
-import {Response} from '../../src/static_response';
-import {Map} from '../../src/facade/collection';
-import {RequestOptions, BaseRequestOptions} from '../../src/base_request_options';
+import {JSONPBackend, JSONPBackend_, JSONPConnection, JSONPConnection_} from '../../src/backends/jsonp_backend';
+import {BaseRequestOptions, RequestOptions} from '../../src/base_request_options';
 import {BaseResponseOptions, ResponseOptions} from '../../src/base_response_options';
-import {ResponseType, ReadyState, RequestMethod} from '../../src/enums';
+import {ReadyState, RequestMethod, ResponseType} from '../../src/enums';
+import {isPresent} from '../../src/facade/lang';
+import {Request} from '../../src/static_request';
 
-var addEventListenerSpy: any;
 var existingScripts: MockBrowserJsonp[] = [];
-var unused: Response;
 
 class MockBrowserJsonp extends BrowserJsonp {
   src: string;
@@ -110,7 +104,7 @@ export function main() {
            connection.finished('Fake data');
            existingScripts[0].dispatchEvent('load');
 
-           TimerWrapper.setTimeout(() => {
+           setTimeout(() => {
              expect(connection.readyState).toBe(ReadyState.Cancelled);
              expect(loadSpy).not.toHaveBeenCalled();
              expect(errorSpy).not.toHaveBeenCalled();

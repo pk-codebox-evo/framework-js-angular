@@ -1,12 +1,11 @@
-# Building and Testing Angular 2 for JS and Dart
+# Building and Testing Angular 2 for JS
 
-This document describes how to set up your development environment to build and test Angular, both
-JS and Dart versions. It also explains the basic mechanics of using `git`, `node`, and `npm`.
+This document describes how to set up your development environment to build and test Angular 2 JS version. 
+It also explains the basic mechanics of using `git`, `node`, and `npm`.
 
 * [Prerequisite Software](#prerequisite-software)
 * [Getting the Sources](#getting-the-sources)
-* [Environment Variable Setup](#environment-variable-setup)
-* [Installing NPM Modules and Dart Packages](#installing-npm-modules-and-dart-packages)
+* [Installing NPM Modules](#installing-npm-modules)
 * [Building](#building)
 * [Running Tests Locally](#running-tests-locally)
 
@@ -26,15 +25,6 @@ following products on your development machine:
   run tests, and generate distributable files. We also use Node's Package Manager, `npm`
   (version `>=3.5.3 <4.0`), which comes with Node. Depending on your system, you can install Node either from
   source or as a pre-packaged bundle.
-
-* *Optional*: [Dart](https://www.dartlang.org) (version `>=1.13.2 <2.0.0`), specifically the Dart SDK and
-  Dartium (a version of [Chromium](http://www.chromium.org) with native support for Dart through
-  the Dart VM). Visit Dart's [Downloads page](https://www.dartlang.org/downloads) page for
-  instructions. You can also download both **stable** and **dev** channel versions from the
-  [download archive](https://www.dartlang.org/downloads/archive/). In that case, on Windows, Dart
-  must be added to the `PATH` (e.g. `path-to-dart-sdk-folder\bin`) and a new `DARTIUM_BIN`
-  environment variable must be created, pointing to the executable (e.g.
-  `path-to-dartium-folder\chrome.exe`).
 
 * [Java Development Kit](http://www.oracle.com/technetwork/es/java/javase/downloads/index.html) which is used
   to execute the selenium standalone server for e2e testing.
@@ -60,44 +50,9 @@ cd angular
 # Add the main Angular repository as an upstream remote to your repository:
 git remote add upstream https://github.com/angular/angular.git
 ```
+## Installing NPM Modules
 
-## Environment Variable Setup
-
-Define the environment variables listed below. These are mainly needed for the testing. The
-notation shown here is for [`bash`](http://www.gnu.org/software/bash); adapt as appropriate for
-your favorite shell.
-
-Examples given below of possible values for initializing the environment variables assume **Mac OS
-X** and that you have installed the Dart Editor in the directory named by
-`DART_EDITOR_DIR=/Applications/dart`. This is only for illustrative purposes.
-
-```shell
-# DARTIUM_BIN: path to a Dartium browser executable; used by Karma to run Dart tests
-export DARTIUM_BIN="$DART_EDITOR_DIR/chromium/Chromium.app/Contents/MacOS/Chromium"
-```
-
-Add the Dart SDK `bin` directory to your path and/or define `DART_SDK` (this is also detailed
-[here](https://www.dartlang.org/tools/pub/installing.html)):
-
-```shell
-# DART_SDK: path to a Dart SDK directory
-export DART_SDK="$DART_EDITOR_DIR/dart-sdk"
-
-# Update PATH to include the Dart SDK bin directory
-PATH+=":$DART_SDK/bin"
-```
-
-And specify where the pub’s dependencies are downloaded. By default, this directory is located under .pub_cache
-in your home directory (on Mac and Linux), or in AppData\Roaming\Pub\Cache (on Windows).
-
-```shell
-# PUB_CACHE: location of pub dependencies
-export PUB_CACHE="/Users/<user>/.pub-cache"
-```
-
-## Installing NPM Modules and Dart Packages
-
-Next, install the JavaScript modules and Dart packages needed to build and test Angular:
+Next, install the JavaScript modules needed to build and test Angular:
 
 ```shell
 # Install Angular project dependencies (package.json)
@@ -119,6 +74,18 @@ use in these instructions.
 *Option 2*: defining a bash alias like `alias nbin='PATH=$(npm bin):$PATH'` as detailed in this
 [Stackoverflow answer](http://stackoverflow.com/questions/9679932/how-to-use-package-installed-locally-in-node-modules/15157360#15157360) and used like this: e.g., `nbin gulp build`.
 
+## Windows only
+
+In order to create the right symlinks, run **as administrator**:
+```shell
+./scripts/windows/create-symlinks.sh
+```
+
+Before submitting a PR, do not forget to remove them:
+```shell
+ ./scripts/windows/remove-symlinks.sh
+ ```
+
 ## Building
 
 To build Angular run:
@@ -134,11 +101,12 @@ To build Angular run:
 To run tests:
 
 ```shell
-$ ./test.sh node
+$ ./test.sh node             # Run all angular tests on node
 
-$ ./test.sh browser
+$ ./test.sh browser          # Run all angular tests in browser
+$ ./test.sh browserNoRouter  # Optionally run all angular tests without router in browser
 
-$ ./test.sh tools
+$ ./test.sh tools            # Run angular tooling (not framework) tests
 ```
 
 You should execute the 3 test suites before submitting a PR to github.
@@ -146,7 +114,7 @@ You should execute the 3 test suites before submitting a PR to github.
 All the tests are executed on our Continuous Integration infrastructure and a PR could only be merged once the tests pass.
 
 - CircleCI fails if your code is not formatted properly,
-- Travis CI fails if any of the test suite describe above fails.
+- Travis CI fails if any of the test suites described above fails.
 
 ## Update the public API tests
 

@@ -2,9 +2,10 @@
 
 cd `dirname $0`
 
-while read PACKAGE
+while read RAW_PACKAGE
 do
-  DESTDIR=./../../modules/\@angular/${PACKAGE}/src
+  PACKAGE=${RAW_PACKAGE: : -1}
+  DESTDIR=./../../modules/\@angular/${PACKAGE}
   mv ${DESTDIR}/facade ${DESTDIR}/facade.old
-  cmd <<< "mklink \"..\\..\\modules\\\@angular\\"${PACKAGE}"\\src\\facade\" \"..\\..\\facade\\src\\\""
+  cmd <<< "mklink \"..\\..\\modules\\\@angular\\"${PACKAGE}"\\facade\" \"..\\..\\facade\\src\\\""
 done < packages.txt

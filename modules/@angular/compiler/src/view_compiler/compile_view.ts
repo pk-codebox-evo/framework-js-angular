@@ -6,15 +6,14 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {ViewType} from '../../core_private';
-import {CompiledAnimation} from '../animation/animation_compiler';
-import {CompileDirectiveMetadata, CompileIdentifierMetadata, CompilePipeMetadata, CompileTokenMap} from '../compile_metadata';
+import {AnimationEntryCompileResult} from '../animation/animation_compiler';
+import {CompileDirectiveMetadata, CompileIdentifierMetadata, CompilePipeMetadata} from '../compile_metadata';
 import {CompilerConfig} from '../config';
-import {ListWrapper} from '../facade/collection';
-import {isBlank, isPresent} from '../facade/lang';
-import {Identifiers} from '../identifiers';
+import {ListWrapper, MapWrapper} from '../facade/collection';
+import {isPresent} from '../facade/lang';
+import {Identifiers, resolveIdentifier} from '../identifiers';
 import * as o from '../output/output_ast';
-import {createDiTokenExpression} from '../util';
+import {ViewType} from '../private_import_core';
 
 import {CompileBinding} from './compile_binding';
 import {CompileElement, CompileNode} from './compile_element';
@@ -23,11 +22,11 @@ import {CompilePipe} from './compile_pipe';
 import {CompileQuery, addQueryToTokenMap, createQueryList} from './compile_query';
 import {EventHandlerVars} from './constants';
 import {NameResolver} from './expression_converter';
-import {createPureProxy, getPropertyInView, getViewFactoryName, injectFromViewParentInjector} from './util';
+import {createPureProxy, getPropertyInView, getViewFactoryName} from './util';
 
 export class CompileView implements NameResolver {
   public viewType: ViewType;
-  public viewQueries: CompileTokenMap<CompileQuery[]>;
+  public viewQueries: Map<any, CompileQuery[]>;
 
   public nodes: CompileNode[] = [];
   // root nodes or AppElements for ViewContainers
@@ -37,6 +36,7 @@ export class CompileView implements NameResolver {
 
   public classStatements: o.Statement[] = [];
   public createMethod: CompileMethod;
+  public animationBindingsMethod: CompileMethod;
   public injectorGetMethod: CompileMethod;
   public updateContentQueriesMethod: CompileMethod;
   public dirtyParentQueriesMethod: CompileMethod;
@@ -71,9 +71,10 @@ export class CompileView implements NameResolver {
   constructor(
       public component: CompileDirectiveMetadata, public genConfig: CompilerConfig,
       public pipeMetas: CompilePipeMetadata[], public styles: o.Expression,
-      public animations: CompiledAnimation[], public viewIndex: number,
+      public animations: AnimationEntryCompileResult[], public viewIndex: number,
       public declarationElement: CompileElement, public templateVariableBindings: string[][]) {
     this.createMethod = new CompileMethod(this);
+    this.animationBindingsMethod = new CompileMethod(this);
     this.injectorGetMethod = new CompileMethod(this);
     this.updateContentQueriesMethod = new CompileMethod(this);
     this.dirtyParentQueriesMethod = new CompileMethod(this);
@@ -98,7 +99,7 @@ export class CompileView implements NameResolver {
     this.componentContext =
         getPropertyInView(o.THIS_EXPR.prop('context'), this, this.componentView);
 
-    var viewQueries = new CompileTokenMap<CompileQuery[]>();
+    var viewQueries = new Map<any, CompileQuery[]>();
     if (this.viewType === ViewType.COMPONENT) {
       var directiveInstance = o.THIS_EXPR.prop('context');
       ListWrapper.forEachWithIndex(this.component.viewQueries, (queryMeta, queryIndex) => {
@@ -137,7 +138,7 @@ export class CompileView implements NameResolver {
     }
     var currView: CompileView = this;
     var result = currView.locals.get(name);
-    while (isBlank(result) && isPresent(currView.declarationElement.view)) {
+    while (!result && isPresent(currView.declarationElement.view)) {
       currView = currView.declarationElement.view;
       result = currView.locals.get(name);
     }
@@ -150,7 +151,7 @@ export class CompileView implements NameResolver {
 
   createLiteralArray(values: o.Expression[]): o.Expression {
     if (values.length === 0) {
-      return o.importExpr(Identifiers.EMPTY_ARRAY);
+      return o.importExpr(resolveIdentifier(Identifiers.EMPTY_ARRAY));
     }
     var proxyExpr = o.THIS_EXPR.prop(`_arr_${this.literalArrayCount++}`);
     var proxyParams: o.FnParam[] = [];
@@ -170,7 +171,7 @@ export class CompileView implements NameResolver {
 
   createLiteralMap(entries: Array<Array<string|o.Expression>>): o.Expression {
     if (entries.length === 0) {
-      return o.importExpr(Identifiers.EMPTY_MAP);
+      return o.importExpr(resolveIdentifier(Identifiers.EMPTY_MAP));
     }
     var proxyExpr = o.THIS_EXPR.prop(`_map_${this.literalMapCount++}`);
     var proxyParams: o.FnParam[] = [];
@@ -191,10 +192,10 @@ export class CompileView implements NameResolver {
   }
 
   afterNodes() {
-    this.pipes.forEach((pipe) => pipe.create());
-    this.viewQueries.values().forEach(
-        (queries) => queries.forEach(
-            (query) => query.afterChildren(this.createMethod, this.updateViewQueriesMethod)));
+    MapWrapper.values(this.viewQueries)
+        .forEach(
+            (queries) => queries.forEach(
+                (query) => query.afterChildren(this.createMethod, this.updateViewQueriesMethod)));
   }
 }
 

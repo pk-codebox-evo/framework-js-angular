@@ -6,32 +6,30 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {CompilerConfig} from '@angular/compiler/src/config';
-import {AfterContentChecked, AfterContentInit, AfterViewChecked, AfterViewInit, ChangeDetectionStrategy, Component, Directive, DoCheck, Injectable, OnChanges, OnDestroy, OnInit, SimpleChanges, ViewEncapsulation} from '@angular/core';
+import {TEST_COMPILER_PROVIDERS} from '@angular/compiler/testing/test_bindings';
+import {AfterContentChecked, AfterContentInit, AfterViewChecked, AfterViewInit, ChangeDetectionStrategy, Component, DoCheck, Injectable, NgModule, OnChanges, OnDestroy, OnInit, Pipe, SimpleChanges, ViewEncapsulation} from '@angular/core';
 import {LIFECYCLE_HOOKS_VALUES} from '@angular/core/src/metadata/lifecycle_hooks';
-import {configureCompiler} from '@angular/core/testing';
-import {afterEach, beforeEach, beforeEachProviders, ddescribe, describe, expect, iit, inject, it, xdescribe, xit} from '@angular/core/testing/testing_internal';
+import {TestBed, inject} from '@angular/core/testing';
 
-import {IS_DART, stringify} from '../src/facade/lang';
+import {stringify} from '../src/facade/lang';
 import {CompileMetadataResolver} from '../src/metadata_resolver';
 
 import {MalformedStylesComponent} from './metadata_resolver_fixture';
-import {TEST_COMPILER_PROVIDERS} from './test_bindings';
 
 export function main() {
   describe('CompileMetadataResolver', () => {
-    beforeEach(() => { configureCompiler({providers: TEST_COMPILER_PROVIDERS}); });
+    beforeEach(() => { TestBed.configureCompiler({providers: TEST_COMPILER_PROVIDERS}); });
 
-    describe('getMetadata', () => {
+    describe('getDirectiveMetadata', () => {
       it('should read metadata',
          inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
-           var meta = resolver.getDirectiveMetadata(ComponentWithEverything);
+           const meta = resolver.getDirectiveMetadata(ComponentWithEverything);
            expect(meta.selector).toEqual('someSelector');
            expect(meta.exportAs).toEqual('someExportAs');
            expect(meta.isComponent).toBe(true);
-           expect(meta.type.runtime).toBe(ComponentWithEverything);
+           expect(meta.type.reference).toBe(ComponentWithEverything);
            expect(meta.type.name).toEqual(stringify(ComponentWithEverything));
-           expect(meta.lifecycleHooks).toEqual(LIFECYCLE_HOOKS_VALUES);
+           expect(meta.type.lifecycleHooks).toEqual(LIFECYCLE_HOOKS_VALUES);
            expect(meta.changeDetection).toBe(ChangeDetectionStrategy.Default);
            expect(meta.inputs).toEqual({'someProp': 'someProp'});
            expect(meta.outputs).toEqual({'someEvent': 'someEvent'});
@@ -48,12 +46,22 @@ export function main() {
 
       it('should use the moduleUrl from the reflector if none is given',
          inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
-           var value: string =
+           const value: string =
                resolver.getDirectiveMetadata(ComponentWithoutModuleId).type.moduleUrl;
-           var expectedEndValue =
-               IS_DART ? 'test/compiler/metadata_resolver_spec.dart' : './ComponentWithoutModuleId';
+           const expectedEndValue = './ComponentWithoutModuleId';
            expect(value.endsWith(expectedEndValue)).toBe(true);
          }));
+
+      it('should throw when the moduleId is not a string',
+         inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
+           expect(() => resolver.getDirectiveMetadata(ComponentWithInvalidModuleId))
+               .toThrowError(
+                   `moduleId should be a string in "ComponentWithInvalidModuleId". See` +
+                   ` https://goo.gl/wIDDiL for more information.\n` +
+                   `If you're using Webpack you should inline the template and the styles, see` +
+                   ` https://goo.gl/X2J8zc.`);
+         }));
+
 
       it('should throw when metadata is incorrectly typed',
          inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
@@ -66,6 +74,62 @@ export function main() {
            expect(() => resolver.getDirectiveMetadata(MyBrokenComp1))
                .toThrowError(`Can't resolve all parameters for MyBrokenComp1: (?).`);
          }));
+      it('should throw with descriptive error message when a directive is passed to imports',
+         inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
+           @NgModule({imports: [ComponentWithoutModuleId]})
+           class ModuleWithImportedComponent {
+           }
+           expect(() => resolver.getNgModuleMetadata(ModuleWithImportedComponent))
+               .toThrowError(
+                   `Unexpected directive 'ComponentWithoutModuleId' imported by the module 'ModuleWithImportedComponent'`);
+         }));
+
+      it('should throw with descriptive error message when a pipe is passed to imports',
+         inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
+           @Pipe({name: 'somePipe'})
+           class SomePipe {
+           }
+           @NgModule({imports: [SomePipe]})
+           class ModuleWithImportedPipe {
+           }
+           expect(() => resolver.getNgModuleMetadata(ModuleWithImportedPipe))
+               .toThrowError(
+                   `Unexpected pipe 'SomePipe' imported by the module 'ModuleWithImportedPipe'`);
+         }));
+
+      it('should throw with descriptive error message when a module is passed to declarations',
+         inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
+           @NgModule({})
+           class SomeModule {
+           }
+           @NgModule({declarations: [SomeModule]})
+           class ModuleWithDeclaredModule {
+           }
+           expect(() => resolver.getNgModuleMetadata(ModuleWithDeclaredModule))
+               .toThrowError(
+                   `Unexpected module 'SomeModule' declared by the module 'ModuleWithDeclaredModule'`);
+         }));
+
+      it('should throw with descriptive error message when null is passed to declarations',
+         inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
+           @NgModule({declarations: [null]})
+           class ModuleWithNullDeclared {
+           }
+           expect(() => resolver.getNgModuleMetadata(ModuleWithNullDeclared))
+               .toThrowError(
+                   `Unexpected value 'null' declared by the module 'ModuleWithNullDeclared'`);
+         }));
+
+      it('should throw with descriptive error message when null is passed to imports',
+         inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
+           @NgModule({imports: [null]})
+           class ModuleWithNullImported {
+           }
+           expect(() => resolver.getNgModuleMetadata(ModuleWithNullImported))
+               .toThrowError(
+                   `Unexpected value 'null' imported by the module 'ModuleWithNullImported'`);
+         }));
+
 
       it('should throw with descriptive error message when a param token of a dependency is undefined',
          inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
@@ -77,14 +141,31 @@ export function main() {
          inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
            expect(() => resolver.getDirectiveMetadata(MyBrokenComp3))
                .toThrowError(
-                   `One or more of providers for "MyBrokenComp3" were not defined: [?, SimpleService, ?].`);
+                   `Invalid providers for "MyBrokenComp3" - only instances of Provider and Type are allowed, got: [SimpleService, ?null?, ...]`);
          }));
 
       it('should throw with descriptive error message when one of viewProviders is not present',
          inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
            expect(() => resolver.getDirectiveMetadata(MyBrokenComp4))
                .toThrowError(
-                   `One or more of viewProviders for "MyBrokenComp4" were not defined: [?, SimpleService, ?].`);
+                   `Invalid viewProviders for "MyBrokenComp4" - only instances of Provider and Type are allowed, got: [?null?, ...]`);
+         }));
+
+      it('should throw with descriptive error message when null or undefined is passed to module bootstrap',
+         inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
+           @NgModule({bootstrap: [null]})
+           class ModuleWithNullBootstrap {
+           }
+           @NgModule({bootstrap: [undefined]})
+           class ModuleWithUndefinedBootstrap {
+           }
+
+           expect(() => resolver.getNgModuleMetadata(ModuleWithNullBootstrap))
+               .toThrowError(
+                   `Unexpected value 'null' used in the bootstrap property of module 'ModuleWithNullBootstrap'`);
+           expect(() => resolver.getNgModuleMetadata(ModuleWithUndefinedBootstrap))
+               .toThrowError(
+                   `Unexpected value 'undefined' used in the bootstrap property of module 'ModuleWithUndefinedBootstrap'`);
          }));
 
       it('should throw an error when the interpolation config has invalid symbols',
@@ -102,48 +183,15 @@ export function main() {
          }));
     });
 
-    describe('getViewDirectivesMetadata', () => {
-
-      it('should return the directive metadatas',
-         inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
-           expect(resolver.getViewDirectivesMetadata(ComponentWithEverything))
-               .toContain(resolver.getDirectiveMetadata(SomeDirective));
-         }));
-
-      describe('platform directives', () => {
-        beforeEach(() => {
-          configureCompiler({
-            providers: [{
-              provide: CompilerConfig,
-              useValue: new CompilerConfig(
-                  {genDebugInfo: true, deprecatedPlatformDirectives: [ADirective]})
-            }]
-          });
-        });
-
-        it('should include platform directives when available',
-           inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
-             expect(resolver.getViewDirectivesMetadata(ComponentWithEverything))
-                 .toContain(resolver.getDirectiveMetadata(ADirective));
-             expect(resolver.getViewDirectivesMetadata(ComponentWithEverything))
-                 .toContain(resolver.getDirectiveMetadata(SomeDirective));
-           }));
-      });
-    });
-
   });
-}
-
-@Directive({selector: 'a-directive'})
-class ADirective {
-}
-
-@Directive({selector: 'someSelector'})
-class SomeDirective {
 }
 
 @Component({selector: 'someComponent', template: ''})
 class ComponentWithoutModuleId {
+}
+
+@Component({selector: 'someComponent', template: '', moduleId: <any>0})
+class ComponentWithInvalidModuleId {
 }
 
 @Component({
@@ -163,7 +211,6 @@ class ComponentWithoutModuleId {
   encapsulation: ViewEncapsulation.Emulated,
   styles: ['someStyle'],
   styleUrls: ['someStyleUrl'],
-  directives: [SomeDirective],
   interpolation: ['{{', '}}']
 })
 class ComponentWithEverything implements OnChanges,
@@ -197,7 +244,7 @@ class MyBrokenComp2 {
 class SimpleService {
 }
 
-@Component({selector: 'my-broken-comp', template: '', providers: [null, SimpleService, [null]]})
+@Component({selector: 'my-broken-comp', template: '', providers: [SimpleService, null, [null]]})
 class MyBrokenComp3 {
 }
 

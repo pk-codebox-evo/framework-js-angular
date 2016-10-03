@@ -30,14 +30,15 @@ generated code:
 main_module.ts
 -------------
 import {BrowserModule} from '@angular/platform-browser';
-import {Component, AppModule, ApplicationRef} from '@angular/core';
+import {Component, NgModule, ApplicationRef} from '@angular/core';
 
 @Component(...)
 export class MyComponent {}
 
-@AppModule({
-  modules: [BrowserModule],
-  precompile: [MyComponent]
+@NgModule({
+  imports: [BrowserModule],
+  declarations: [MyComponent],
+  entryComponents: [MyComponent]
 })
 export class MainModule {
   constructor(appRef: ApplicationRef) {
@@ -49,10 +50,9 @@ bootstrap.ts
 -------------
 
 import {MainModuleNgFactory} from './main_module.ngfactory';
-import {bootstrapModuleFactory} from '@angular/core';
-import {browserPlatform} from '@angular/platform-browser';
+import {platformBrowser} from '@angular/platform-browser';
 
-bootstrapModuleFactory(MainModuleNgFactory, browserPlatform());
+platformBrowser().bootstrapModuleFactory(MainModuleNgFactory);
 ```
 
 ## Configuration

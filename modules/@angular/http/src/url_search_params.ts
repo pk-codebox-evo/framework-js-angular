@@ -6,18 +6,15 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {ListWrapper, Map, isListLikeIterable} from '../src/facade/collection';
-import {isPresent} from '../src/facade/lang';
-
 function paramParser(rawParams: string = ''): Map<string, string[]> {
-  var map = new Map<string, string[]>();
+  const map = new Map<string, string[]>();
   if (rawParams.length > 0) {
-    var params: string[] = rawParams.split('&');
+    const params: string[] = rawParams.split('&');
     params.forEach((param: string) => {
-      var split: string[] = param.split('=', 2);
-      var key = split[0];
-      var val = split[1];
-      var list = isPresent(map.get(key)) ? map.get(key) : [];
+      const eqIdx = param.indexOf('=');
+      const [key, val]: string[] =
+          eqIdx == -1 ? [param, ''] : [param.slice(0, eqIdx), param.slice(eqIdx + 1)];
+      const list = map.get(key) || [];
       list.push(val);
       map.set(key, list);
     });
@@ -41,7 +38,7 @@ function standardEncoding(v: string): string {
       .replace(/%2C/gi, ',')
       .replace(/%3B/gi, ';')
       .replace(/%2B/gi, '+')
-      .replace(/%3D/gi, ';')
+      .replace(/%3D/gi, '=')
       .replace(/%3F/gi, '?')
       .replace(/%2F/gi, '/');
 }
@@ -89,7 +86,7 @@ export class URLSearchParams {
   }
 
   clone(): URLSearchParams {
-    var clone = new URLSearchParams();
+    var clone = new URLSearchParams('', this.queryEncoder);
     clone.appendAll(this);
     return clone;
   }
@@ -97,23 +94,20 @@ export class URLSearchParams {
   has(param: string): boolean { return this.paramsMap.has(param); }
 
   get(param: string): string {
-    var storedParam = this.paramsMap.get(param);
-    if (isListLikeIterable(storedParam)) {
-      return ListWrapper.first(storedParam);
-    } else {
-      return null;
-    }
+    const storedParam = this.paramsMap.get(param);
+
+    return Array.isArray(storedParam) ? storedParam[0] : null;
   }
 
-  getAll(param: string): string[] {
-    var mapParam = this.paramsMap.get(param);
-    return isPresent(mapParam) ? mapParam : [];
-  }
+  getAll(param: string): string[] { return this.paramsMap.get(param) || []; }
 
   set(param: string, val: string) {
-    var mapParam = this.paramsMap.get(param);
-    var list = isPresent(mapParam) ? mapParam : [];
-    ListWrapper.clear(list);
+    if (val === void 0 || val === null) {
+      this.delete(param);
+      return;
+    }
+    const list = this.paramsMap.get(param) || [];
+    list.length = 0;
     list.push(val);
     this.paramsMap.set(param, list);
   }
@@ -126,17 +120,16 @@ export class URLSearchParams {
   // TODO(@caitp): document this better
   setAll(searchParams: URLSearchParams) {
     searchParams.paramsMap.forEach((value, param) => {
-      var mapParam = this.paramsMap.get(param);
-      var list = isPresent(mapParam) ? mapParam : [];
-      ListWrapper.clear(list);
+      const list = this.paramsMap.get(param) || [];
+      list.length = 0;
       list.push(value[0]);
       this.paramsMap.set(param, list);
     });
   }
 
   append(param: string, val: string): void {
-    var mapParam = this.paramsMap.get(param);
-    var list = isPresent(mapParam) ? mapParam : [];
+    if (val === void 0 || val === null) return;
+    const list = this.paramsMap.get(param) || [];
     list.push(val);
     this.paramsMap.set(param, list);
   }
@@ -150,9 +143,8 @@ export class URLSearchParams {
   // TODO(@caitp): document this better
   appendAll(searchParams: URLSearchParams) {
     searchParams.paramsMap.forEach((value, param) => {
-      var mapParam = this.paramsMap.get(param);
-      var list = isPresent(mapParam) ? mapParam : [];
-      for (var i = 0; i < value.length; ++i) {
+      const list = this.paramsMap.get(param) || [];
+      for (let i = 0; i < value.length; ++i) {
         list.push(value[i]);
       }
       this.paramsMap.set(param, list);
@@ -169,9 +161,8 @@ export class URLSearchParams {
   // TODO(@caitp): document this better
   replaceAll(searchParams: URLSearchParams) {
     searchParams.paramsMap.forEach((value, param) => {
-      var mapParam = this.paramsMap.get(param);
-      var list = isPresent(mapParam) ? mapParam : [];
-      ListWrapper.clear(list);
+      const list = this.paramsMap.get(param) || [];
+      list.length = 0;
       for (var i = 0; i < value.length; ++i) {
         list.push(value[i]);
       }
@@ -180,7 +171,7 @@ export class URLSearchParams {
   }
 
   toString(): string {
-    var paramsList: string[] = [];
+    const paramsList: string[] = [];
     this.paramsMap.forEach((values, k) => {
       values.forEach(
           v => paramsList.push(

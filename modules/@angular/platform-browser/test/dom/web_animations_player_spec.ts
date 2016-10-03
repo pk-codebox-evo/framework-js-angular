@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {AsyncTestCompleter, MockAnimationPlayer, beforeEach, beforeEachProviders, ddescribe, describe, expect, iit, inject, it, xdescribe, xit} from '@angular/core/testing/testing_internal';
+import {MockAnimationPlayer, beforeEach, describe, expect, it} from '@angular/core/testing/testing_internal';
 import {el} from '@angular/platform-browser/testing/browser_util';
 
 import {DomAnimatePlayer} from '../../src/dom/dom_animate_player';
@@ -22,6 +22,7 @@ class ExtendedWebAnimationsPlayer extends WebAnimationsPlayer {
     super(element, keyframes, options);
   }
 
+  /** @internal */
   _triggerWebAnimation(elm: any, keyframes: any[], options: any): DomAnimatePlayer {
     return this.domPlayer;
   }
@@ -126,6 +127,17 @@ export function main() {
       player2.finish();
       expect(captures2['finish'].length).toEqual(1);
       expect(captures2['cancel'].length).toEqual(0);
+    });
+
+    it('should run the onStart method when started but only once', () => {
+      var calls = 0;
+      player.onStart(() => calls++);
+      expect(calls).toEqual(0);
+      player.play();
+      expect(calls).toEqual(1);
+      player.pause();
+      player.play();
+      expect(calls).toEqual(1);
     });
   });
 }
