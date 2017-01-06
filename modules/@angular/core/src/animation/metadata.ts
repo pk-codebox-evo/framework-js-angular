@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {isArray, isPresent, isString} from '../facade/lang';
+import {isPresent} from '../facade/lang';
 
 /**
  * @experimental Animation support is experimental.
@@ -183,9 +183,9 @@ export class AnimationGroupMetadata extends AnimationWithStepsMetadata {
 export function animate(
     timing: string | number, styles: AnimationStyleMetadata | AnimationKeyframesSequenceMetadata =
                                  null): AnimationAnimateMetadata {
-  var stylesEntry = styles;
+  let stylesEntry = styles;
   if (!isPresent(stylesEntry)) {
-    var EMPTY_STYLE: {[key: string]: string | number} = {};
+    const EMPTY_STYLE: {[key: string]: string | number} = {};
     stylesEntry = new AnimationStyleMetadata([EMPTY_STYLE], 1);
   }
   return new AnimationAnimateMetadata(timing, stylesEntry);
@@ -326,18 +326,18 @@ export function sequence(steps: AnimationMetadata[]): AnimationSequenceMetadata 
 export function style(
     tokens: string | {[key: string]: string | number} |
     Array<string|{[key: string]: string | number}>): AnimationStyleMetadata {
-  var input: Array<{[key: string]: string | number}|string>;
-  var offset: number = null;
-  if (isString(tokens)) {
+  let input: Array<{[key: string]: string | number}|string>;
+  let offset: number = null;
+  if (typeof tokens === 'string') {
     input = [<string>tokens];
   } else {
-    if (isArray(tokens)) {
+    if (Array.isArray(tokens)) {
       input = <Array<{[key: string]: string | number}>>tokens;
     } else {
       input = [<{[key: string]: string | number}>tokens];
     }
     input.forEach(entry => {
-      var entryOffset = (entry as any /** TODO #9100 */)['offset'];
+      const entryOffset = (entry as any /** TODO #9100 */)['offset'];
       if (isPresent(entryOffset)) {
         offset = offset == null ? parseFloat(entryOffset) : offset;
       }
@@ -540,6 +540,22 @@ export function keyframes(steps: AnimationStyleMetadata[]): AnimationKeyframesSe
  * ])
  * ```
  *
+ * ### Transition Aliases (`:enter` and `:leave`)
+ *
+ * Given that enter (insertion) and leave (removal) animations are so common,
+ * the `transition` function accepts both `:enter` and `:leave` values which
+ * are aliases for the `void => *` and `* => void` state changes.
+ *
+ * ```
+ * transition(":enter", [
+ *   style({ opacity: 0 }),
+ *   animate(500, style({ opacity: 1 }))
+ * ])
+ * transition(":leave", [
+ *   animate(500, style({ opacity: 0 }))
+ * ])
+ * ```
+ *
  * ### Example ([live demo](http://plnkr.co/edit/Kez8XGWBxWue7qP7nNvF?p=preview))
  *
  * {@example core/animation/ts/dsl/animation_example.ts region='Component'}
@@ -548,8 +564,7 @@ export function keyframes(steps: AnimationStyleMetadata[]): AnimationKeyframesSe
  */
 export function transition(stateChangeExpr: string, steps: AnimationMetadata | AnimationMetadata[]):
     AnimationStateTransitionMetadata {
-  var animationData = isArray(steps) ? new AnimationSequenceMetadata(<AnimationMetadata[]>steps) :
-                                       <AnimationMetadata>steps;
+  const animationData = Array.isArray(steps) ? new AnimationSequenceMetadata(steps) : steps;
   return new AnimationStateTransitionMetadata(stateChangeExpr, animationData);
 }
 

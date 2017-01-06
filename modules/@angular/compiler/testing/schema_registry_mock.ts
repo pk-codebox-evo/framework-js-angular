@@ -26,7 +26,9 @@ export class MockSchemaRegistry implements ElementSchemaRegistry {
     return value === void 0 ? true : value;
   }
 
-  securityContext(tagName: string, property: string): SecurityContext {
+  allKnownElementNames(): string[] { return Object.keys(this.existingElements); }
+
+  securityContext(selector: string, property: string, isAttribute: boolean): SecurityContext {
     return SecurityContext.NONE;
   }
 
@@ -51,5 +53,11 @@ export class MockSchemaRegistry implements ElementSchemaRegistry {
     } else {
       return {error: false};
     }
+  }
+
+  normalizeAnimationStyleProperty(propName: string): string { return propName; }
+  normalizeAnimationStyleValue(camelCaseProp: string, userProvidedProp: string, val: string|number):
+      {error: string, value: string} {
+    return {error: null, value: val.toString()};
   }
 }

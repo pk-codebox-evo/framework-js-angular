@@ -209,7 +209,8 @@ export class ShadowCss {
    *  scopeName .foo { ... }
   */
   private _scopeCssText(cssText: string, scopeSelector: string, hostSelector: string): string {
-    const unscoped = this._extractUnscopedRulesFromCssText(cssText);
+    const unscopedRules = this._extractUnscopedRulesFromCssText(cssText);
+    // replace :host and :host-context -shadowcsshost and -shadowcsshost respectively
     cssText = this._insertPolyfillHostInCssText(cssText);
     cssText = this._convertColonHost(cssText);
     cssText = this._convertColonHostContext(cssText);
@@ -217,7 +218,7 @@ export class ShadowCss {
     if (scopeSelector) {
       cssText = this._scopeSelectors(cssText, scopeSelector, hostSelector);
     }
-    cssText = cssText + '\n' + unscoped;
+    cssText = cssText + '\n' + unscopedRules;
     return cssText.trim();
   }
 
@@ -280,15 +281,15 @@ export class ShadowCss {
   }
 
   private _convertColonRule(cssText: string, regExp: RegExp, partReplacer: Function): string {
-    // m[1] = :host, m[2] = contents of (), m[3] rest of rule
+    // m[1] = :host(-context), m[2] = contents of (), m[3] rest of rule
     return cssText.replace(regExp, function(...m: string[]) {
       if (m[2]) {
         const parts = m[2].split(',');
         const r: string[] = [];
         for (let i = 0; i < parts.length; i++) {
-          let p = parts[i];
+          const p = parts[i].trim();
           if (!p) break;
-          r.push(partReplacer(_polyfillHostNoCombinator, p.trim(), m[3]));
+          r.push(partReplacer(_polyfillHostNoCombinator, p, m[3]));
         }
         return r.join(',');
       } else {
@@ -314,8 +315,7 @@ export class ShadowCss {
    * by replacing with space.
   */
   private _convertShadowDOMSelectors(cssText: string): string {
-    return _shadowDOMSelectorsRe.reduce(
-        (result, pattern) => { return result.replace(pattern, ' '); }, cssText);
+    return _shadowDOMSelectorsRe.reduce((result, pattern) => result.replace(pattern, ' '), cssText);
   }
 
   // change a selector like 'div' to 'name div'
@@ -378,10 +378,18 @@ export class ShadowCss {
       string {
     // In Android browser, the lastIndex is not reset when the regex is used in String.replace()
     _polyfillHostRe.lastIndex = 0;
-
     if (_polyfillHostRe.test(selector)) {
       const replaceBy = this.strictStyling ? `[${hostSelector}]` : scopeSelector;
-      return selector.replace(_polyfillHostNoCombinatorRe, (hnc, selector) => selector + replaceBy)
+      return selector
+          .replace(
+              _polyfillHostNoCombinatorRe,
+              (hnc, selector) => {
+                return selector.replace(
+                    /([^:]*)(:*)(.*)/,
+                    (_: string, before: string, colon: string, after: string) => {
+                      return before + replaceBy + colon + after;
+                    });
+              })
           .replace(_polyfillHostRe, replaceBy + ' ');
     }
 
@@ -408,10 +416,10 @@ export class ShadowCss {
         scopedP = this._applySimpleSelectorScope(p, scopeSelector, hostSelector);
       } else {
         // remove :host since it should be unnecessary
-        var t = p.replace(_polyfillHostRe, '');
+        const t = p.replace(_polyfillHostRe, '');
         if (t.length > 0) {
           const matches = t.match(/([^:]*)(:*)(.*)/);
-          if (matches !== null) {
+          if (matches) {
             scopedP = matches[1] + attrName + matches[2] + matches[3];
           }
         }
@@ -420,38 +428,29 @@ export class ShadowCss {
       return scopedP;
     };
 
-    const sep = /( |>|\+|~(?!=)|\[|\])\s*/g;
-    const scopeAfter = selector.indexOf(_polyfillHostNoCombinator);
+    const safeContent = new SafeSelector(selector);
+    selector = safeContent.content();
 
-    let scoped = '';
+    let scopedSelector = '';
     let startIndex = 0;
     let res: RegExpExecArray;
-    let inAttributeSelector: boolean = false;
+    const sep = /( |>|\+|~(?!=))\s*/g;
+    const scopeAfter = selector.indexOf(_polyfillHostNoCombinator);
 
     while ((res = sep.exec(selector)) !== null) {
       const separator = res[1];
-      if (separator === '[') {
-        inAttributeSelector = true;
-        scoped += selector.slice(startIndex, res.index).trim() + '[';
-        startIndex = sep.lastIndex;
-      }
-      if (!inAttributeSelector) {
-        const part = selector.slice(startIndex, res.index).trim();
-        // if a selector appears before :host-context it should not be shimmed as it
-        // matches on ancestor elements and not on elements in the host's shadow
-        const scopedPart = startIndex >= scopeAfter ? _scopeSelectorPart(part) : part;
-        scoped += `${scopedPart} ${separator} `;
-        startIndex = sep.lastIndex;
-      } else if (separator === ']') {
-        const part = selector.slice(startIndex, res.index).trim() + ']';
-        const scopedPart = startIndex >= scopeAfter ? _scopeSelectorPart(part) : part;
-        scoped += `${scopedPart} `;
-        startIndex = sep.lastIndex;
-        inAttributeSelector = false;
-      }
+      const part = selector.slice(startIndex, res.index).trim();
+      // if a selector appears before :host-context it should not be shimmed as it
+      // matches on ancestor elements and not on elements in the host's shadow
+      const scopedPart = startIndex >= scopeAfter ? _scopeSelectorPart(part) : part;
+      scopedSelector += `${scopedPart} ${separator} `;
+      startIndex = sep.lastIndex;
     }
 
-    return scoped + _scopeSelectorPart(selector.substring(startIndex));
+    scopedSelector += _scopeSelectorPart(selector.substring(startIndex));
+
+    // replace the placeholders with their original values
+    return safeContent.restore(scopedSelector);
   }
 
   private _insertPolyfillHostInCssText(selector: string): string {
@@ -459,6 +458,39 @@ export class ShadowCss {
         .replace(_colonHostRe, _polyfillHost);
   }
 }
+
+class SafeSelector {
+  private placeholders: string[] = [];
+  private index = 0;
+  private _content: string;
+
+  constructor(selector: string) {
+    // Replaces attribute selectors with placeholders.
+    // The WS in [attr="va lue"] would otherwise be interpreted as a selector separator.
+    selector = selector.replace(/(\[[^\]]*\])/g, (_, keep) => {
+      const replaceBy = `__ph-${this.index}__`;
+      this.placeholders.push(keep);
+      this.index++;
+      return replaceBy;
+    });
+
+    // Replaces the expression in `:nth-child(2n + 1)` with a placeholder.
+    // WS and "+" would otherwise be interpreted as selector separators.
+    this._content = selector.replace(/(:nth-[-\w]+)(\([^)]+\))/g, (_, pseudo, exp) => {
+      const replaceBy = `__ph-${this.index}__`;
+      this.placeholders.push(exp);
+      this.index++;
+      return pseudo + replaceBy;
+    });
+  };
+
+  restore(content: string): string {
+    return content.replace(/__ph-(\d+)__/g, (ph, index) => this.placeholders[+index]);
+  }
+
+  content(): string { return this._content; }
+}
+
 const _cssContentNextSelectorRe =
     /polyfill-next-selector[^}]*content:[\s]*?(['"])(.*?)\1[;\s]*}([^{]*?){/gim;
 const _cssContentRuleRe = /(polyfill-rule)[^}]*(content:[\s]*(['"])(.*?)\3)[;\s]*[^}]*}/gim;

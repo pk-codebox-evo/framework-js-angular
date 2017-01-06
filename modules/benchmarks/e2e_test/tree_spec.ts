@@ -7,6 +7,7 @@
  */
 
 import {openBrowser, verifyNoBrowserErrors} from 'e2e_util/e2e_util';
+import {$} from 'protractor';
 
 describe('tree benchmark spec', () => {
 
@@ -16,6 +17,13 @@ describe('tree benchmark spec', () => {
     testTreeBenchmark({
       url: 'all/benchmarks/src/tree/ng2/index.html',
     });
+  });
+
+  it('should work for ng2 detect changes', () => {
+    let params = [{name: 'depth', value: 4}];
+    openBrowser({url: 'all/benchmarks/src/tree/ng2/index.html'});
+    $('#detectChanges').click();
+    expect($('#numberOfChecks').getText()).toContain('10');
   });
 
   it('should work for ng2 ftl', () => {

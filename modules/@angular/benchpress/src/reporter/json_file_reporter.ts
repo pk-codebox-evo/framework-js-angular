@@ -9,7 +9,6 @@
 import {Inject, Injectable, OpaqueToken} from '@angular/core';
 
 import {Options} from '../common_options';
-import {Json} from '../facade/lang';
 import {MeasureValues} from '../measure_values';
 import {Reporter} from '../reporter';
 import {SampleDescription} from '../sample_description';
@@ -39,13 +38,15 @@ export class JsonFileReporter extends Reporter {
     sortedProps(this._description.metrics).forEach((metricName) => {
       stats[metricName] = formatStats(validSample, metricName);
     });
-    var content = Json.stringify({
-      'description': this._description,
-      'stats': stats,
-      'completeSample': completeSample,
-      'validSample': validSample,
-    });
-    var filePath = `${this._path}/${this._description.id}_${this._now().getTime()}.json`;
+    const content = JSON.stringify(
+        {
+          'description': this._description,
+          'stats': stats,
+          'completeSample': completeSample,
+          'validSample': validSample,
+        },
+        null, 2);
+    const filePath = `${this._path}/${this._description.id}_${this._now().getTime()}.json`;
     return this._writeFile(filePath, content);
   }
 }

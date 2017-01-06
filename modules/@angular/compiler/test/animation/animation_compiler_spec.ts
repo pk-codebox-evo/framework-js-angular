@@ -10,50 +10,55 @@ import {AnimationMetadata, animate, sequence, style, transition, trigger} from '
 import {beforeEach, describe, expect, inject, it} from '@angular/core/testing/testing_internal';
 import {AnimationCompiler, AnimationEntryCompileResult} from '../../src/animation/animation_compiler';
 import {AnimationParser} from '../../src/animation/animation_parser';
-import {CompileAnimationEntryMetadata, CompileDirectiveMetadata, CompileTemplateMetadata, CompileTypeMetadata} from '../../src/compile_metadata';
+import {CompileAnimationEntryMetadata, CompileDirectiveMetadata, CompileTemplateMetadata, CompileTypeMetadata, identifierName} from '../../src/compile_metadata';
 import {CompileMetadataResolver} from '../../src/metadata_resolver';
+import {ElementSchemaRegistry} from '../../src/schema/element_schema_registry';
 
 export function main() {
   describe('RuntimeAnimationCompiler', () => {
-    var resolver: any /** TODO #9100 */;
-    beforeEach(
-        inject([CompileMetadataResolver], (res: CompileMetadataResolver) => { resolver = res; }));
+    let resolver: CompileMetadataResolver;
+    let parser: AnimationParser;
+    beforeEach(inject(
+        [CompileMetadataResolver, ElementSchemaRegistry],
+        (res: CompileMetadataResolver, schema: ElementSchemaRegistry) => {
+          resolver = res;
+          parser = new AnimationParser(schema);
+        }));
 
-    const parser = new AnimationParser();
     const compiler = new AnimationCompiler();
 
-    var compileAnimations =
+    const compileAnimations =
         (component: CompileDirectiveMetadata): AnimationEntryCompileResult[] => {
           const parsedAnimations = parser.parseComponent(component);
-          return compiler.compile(component.type.name, parsedAnimations);
+          return compiler.compile(identifierName(component.type), parsedAnimations);
         };
 
-    var compileTriggers = (input: any[]) => {
-      var entries: CompileAnimationEntryMetadata[] = input.map(entry => {
-        var animationTriggerData = trigger(entry[0], entry[1]);
+    const compileTriggers = (input: any[]) => {
+      const entries: CompileAnimationEntryMetadata[] = input.map(entry => {
+        const animationTriggerData = trigger(entry[0], entry[1]);
         return resolver.getAnimationEntryMetadata(animationTriggerData);
       });
 
-      var component = CompileDirectiveMetadata.create({
-        type: new CompileTypeMetadata({name: 'myCmp'}),
+      const component = CompileDirectiveMetadata.create({
+        type: {reference: {name: 'myCmp', filePath: ''}, diDeps: [], lifecycleHooks: []},
         template: new CompileTemplateMetadata({animations: entries})
       });
 
       return compileAnimations(component);
     };
 
-    var compileSequence = (seq: AnimationMetadata) => {
+    const compileSequence = (seq: AnimationMetadata) => {
       return compileTriggers([['myAnimation', [transition('state1 => state2', seq)]]]);
     };
 
     it('should throw an exception containing all the inner animation parser errors', () => {
-      var animation = sequence([
+      const animation = sequence([
         style({'color': 'red'}), animate(1000, style({'font-size': '100px'})),
         style({'color': 'blue'}), animate(1000, style(':missing_state')), style({'color': 'gold'}),
         animate(1000, style('broken_state'))
       ]);
 
-      var capturedErrorMessage: string;
+      let capturedErrorMessage: string;
       try {
         compileSequence(animation);
       } catch (e) {

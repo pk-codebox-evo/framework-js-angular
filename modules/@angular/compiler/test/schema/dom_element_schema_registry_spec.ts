@@ -147,12 +147,12 @@ If 'onAnything' is a directive input, make sure the directive is imported by the
        });
 
     it('should return security contexts for elements', () => {
-      expect(registry.securityContext('iframe', 'srcdoc')).toBe(SecurityContext.HTML);
-      expect(registry.securityContext('p', 'innerHTML')).toBe(SecurityContext.HTML);
-      expect(registry.securityContext('a', 'href')).toBe(SecurityContext.URL);
-      expect(registry.securityContext('a', 'style')).toBe(SecurityContext.STYLE);
-      expect(registry.securityContext('ins', 'cite')).toBe(SecurityContext.URL);
-      expect(registry.securityContext('base', 'href')).toBe(SecurityContext.RESOURCE_URL);
+      expect(registry.securityContext('iframe', 'srcdoc', false)).toBe(SecurityContext.HTML);
+      expect(registry.securityContext('p', 'innerHTML', false)).toBe(SecurityContext.HTML);
+      expect(registry.securityContext('a', 'href', false)).toBe(SecurityContext.URL);
+      expect(registry.securityContext('a', 'style', false)).toBe(SecurityContext.STYLE);
+      expect(registry.securityContext('ins', 'cite', false)).toBe(SecurityContext.URL);
+      expect(registry.securityContext('base', 'href', false)).toBe(SecurityContext.RESOURCE_URL);
     });
 
     it('should detect properties on namespaced elements', () => {
@@ -162,9 +162,14 @@ If 'onAnything' is a directive input, make sure the directive is imported by the
     });
 
     it('should check security contexts case insensitive', () => {
-      expect(registry.securityContext('p', 'iNnErHtMl')).toBe(SecurityContext.HTML);
-      expect(registry.securityContext('p', 'formaction')).toBe(SecurityContext.URL);
-      expect(registry.securityContext('p', 'formAction')).toBe(SecurityContext.URL);
+      expect(registry.securityContext('p', 'iNnErHtMl', false)).toBe(SecurityContext.HTML);
+      expect(registry.securityContext('p', 'formaction', false)).toBe(SecurityContext.URL);
+      expect(registry.securityContext('p', 'formAction', false)).toBe(SecurityContext.URL);
+    });
+
+    it('should check security contexts for attributes', () => {
+      expect(registry.securityContext('p', 'innerHtml', true)).toBe(SecurityContext.HTML);
+      expect(registry.securityContext('p', 'formaction', true)).toBe(SecurityContext.URL);
     });
 
     describe('Angular custom elements', () => {
@@ -187,5 +192,44 @@ If 'onAnything' is a directive input, make sure the directive is imported by the
       });
     }
 
+    describe('normalizeAnimationStyleProperty', () => {
+      it('should normalize the given CSS property to camelCase', () => {
+        expect(registry.normalizeAnimationStyleProperty('border-radius')).toBe('borderRadius');
+        expect(registry.normalizeAnimationStyleProperty('zIndex')).toBe('zIndex');
+        expect(registry.normalizeAnimationStyleProperty('-webkit-animation'))
+            .toBe('WebkitAnimation');
+      });
+    });
+
+    describe('normalizeAnimationStyleValue', () => {
+      it('should normalize the given dimensional CSS style value to contain a PX value when numeric',
+         () => {
+           expect(
+               registry.normalizeAnimationStyleValue('borderRadius', 'border-radius', 10)['value'])
+               .toBe('10px');
+         });
+
+      it('should not normalize any values that are of zero', () => {
+        expect(registry.normalizeAnimationStyleValue('opacity', 'opacity', 0)['value']).toBe('0');
+        expect(registry.normalizeAnimationStyleValue('width', 'width', 0)['value']).toBe('0');
+      });
+
+      it('should retain the given dimensional CSS style value\'s unit if it already exists', () => {
+        expect(
+            registry.normalizeAnimationStyleValue('borderRadius', 'border-radius', '10em')['value'])
+            .toBe('10em');
+      });
+
+      it('should trim the provided CSS style value', () => {
+        expect(registry.normalizeAnimationStyleValue('color', 'color', '   red ')['value'])
+            .toBe('red');
+      });
+
+      it('should stringify all non dimensional numeric style values', () => {
+        expect(registry.normalizeAnimationStyleValue('zIndex', 'zIndex', 10)['value']).toBe('10');
+        expect(registry.normalizeAnimationStyleValue('opacity', 'opacity', 0.5)['value'])
+            .toBe('0.5');
+      });
+    });
   });
 }

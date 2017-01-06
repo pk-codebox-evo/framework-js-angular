@@ -6,10 +6,8 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {ListWrapper} from '../../facade/collection';
-import * as html from '../../ml_parser/ast';
+import {decimalDigest} from '../digest';
 import * as i18n from '../i18n_ast';
-import {MessageBundle} from '../message_bundle';
 
 import {Serializer} from './serializer';
 import * as xml from './xml_helper';
@@ -40,13 +38,20 @@ const _DOCTYPE = `<!ELEMENT messagebundle (msg)*>
 <!ELEMENT ex (#PCDATA)>`;
 
 export class Xmb implements Serializer {
-  write(messageMap: {[k: string]: i18n.Message}): string {
+  write(messages: i18n.Message[]): string {
+    const exampleVisitor = new ExampleVisitor();
     const visitor = new _Visitor();
+    const visited: {[id: string]: boolean} = {};
     let rootNode = new xml.Tag(_MESSAGES_TAG);
 
-    Object.keys(messageMap).forEach((id) => {
-      const message = messageMap[id];
-      let attrs: {[k: string]: string} = {id};
+    messages.forEach(message => {
+      const id = this.digest(message);
+
+      // deduplicate messages
+      if (visited[id]) return;
+      visited[id] = true;
+
+      const attrs: {[k: string]: string} = {id};
 
       if (message.description) {
         attrs['desc'] = message.description;
@@ -67,14 +72,16 @@ export class Xmb implements Serializer {
       new xml.CR(),
       new xml.Doctype(_MESSAGES_TAG, _DOCTYPE),
       new xml.CR(),
-      rootNode,
+      exampleVisitor.addDefaultExamples(rootNode),
       new xml.CR(),
     ]);
   }
 
-  load(content: string, url: string, messageBundle: MessageBundle): {[id: string]: html.Node[]} {
+  load(content: string, url: string): {[msgId: string]: i18n.Node[]} {
     throw new Error('Unsupported');
   }
+
+  digest(message: i18n.Message): string { return digest(message); }
 }
 
 class _Visitor implements i18n.Visitor {
@@ -87,7 +94,7 @@ class _Visitor implements i18n.Visitor {
   }
 
   visitIcu(icu: i18n.Icu, context?: any): xml.Node[] {
-    const nodes = [new xml.Text(`{${icu.expression}, ${icu.type}, `)];
+    const nodes = [new xml.Text(`{${icu.expressionPlaceholder}, ${icu.type}, `)];
 
     Object.keys(icu.cases).forEach((c: string) => {
       nodes.push(new xml.Text(`${c} {`), ...icu.cases[c].visit(this), new xml.Text(`} `));
@@ -121,6 +128,33 @@ class _Visitor implements i18n.Visitor {
   }
 
   serialize(nodes: i18n.Node[]): xml.Node[] {
-    return ListWrapper.flatten(nodes.map(node => node.visit(this)));
+    return [].concat(...nodes.map(node => node.visit(this)));
   }
+}
+
+export function digest(message: i18n.Message): string {
+  return decimalDigest(message);
+}
+
+// TC requires at least one non-empty example on placeholders
+class ExampleVisitor implements xml.IVisitor {
+  addDefaultExamples(node: xml.Node): xml.Node {
+    node.visit(this);
+    return node;
+  }
+
+  visitTag(tag: xml.Tag): void {
+    if (tag.name === _PLACEHOLDER_TAG) {
+      if (!tag.children || tag.children.length == 0) {
+        const exText = new xml.Text(tag.attrs['name'] || '...');
+        tag.children = [new xml.Tag(_EXEMPLE_TAG, {}, [exText])];
+      }
+    } else if (tag.children) {
+      tag.children.forEach(node => node.visit(this));
+    }
+  }
+
+  visitText(text: xml.Text): void {}
+  visitDeclaration(decl: xml.Declaration): void {}
+  visitDoctype(doctype: xml.Doctype): void {}
 }

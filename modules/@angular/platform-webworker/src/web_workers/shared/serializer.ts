@@ -8,12 +8,10 @@
 
 import {Injectable, RenderComponentType, Type, ViewEncapsulation} from '@angular/core';
 
-import {isArray, isPresent} from '../../facade/lang';
+import {isPresent} from '../../facade/lang';
 
 import {RenderStore} from './render_store';
 import {LocationType} from './serialized_types';
-
-
 
 // PRIMITIVE is any type that does not need to be serialized (string, number, boolean)
 // We set it to String so that it is considered a Type.
@@ -30,7 +28,7 @@ export class Serializer {
     if (!isPresent(obj)) {
       return null;
     }
-    if (isArray(obj)) {
+    if (Array.isArray(obj)) {
       return (<any[]>obj).map(v => this.serialize(v, type));
     }
     if (type == PRIMITIVE) {
@@ -38,15 +36,17 @@ export class Serializer {
     }
     if (type == RenderStoreObject) {
       return this._renderStore.serialize(obj);
-    } else if (type === RenderComponentType) {
-      return this._serializeRenderComponentType(obj);
-    } else if (type === ViewEncapsulation) {
-      return obj;
-    } else if (type === LocationType) {
-      return this._serializeLocation(obj);
-    } else {
-      throw new Error('No serializer for ' + type.toString());
     }
+    if (type === RenderComponentType) {
+      return this._serializeRenderComponentType(obj);
+    }
+    if (type === ViewEncapsulation) {
+      return obj;
+    }
+    if (type === LocationType) {
+      return this._serializeLocation(obj);
+    }
+    throw new Error('No serializer for ' + type.toString());
   }
 
   deserialize(map: any, type: any, data?: any): any {
@@ -119,5 +119,6 @@ export class Serializer {
   }
 }
 
+export const ANIMATION_WORKER_PLAYER_PREFIX = 'AnimationPlayer.';
 
 export class RenderStoreObject {}

@@ -67,7 +67,7 @@ const _chromeNumKeyPadMap = {
  * @security Tread carefully! Interacting with the DOM directly is dangerous and
  * can introduce XSS risks.
  */
-/* tslint:disable:requireParameterType */
+/* tslint:disable:requireParameterType no-console */
 export class BrowserDomAdapter extends GenericBrowserDomAdapter {
   parse(templateHtml: string) { throw new Error('parse not implemented'); }
   static makeCurrent() { setRootDomAdapter(new BrowserDomAdapter()); }
@@ -77,16 +77,33 @@ export class BrowserDomAdapter extends GenericBrowserDomAdapter {
   invoke(el: Node, methodName: string, args: any[]): any { (<any>el)[methodName](...args); }
 
   // TODO(tbosch): move this into a separate environment class once we have it
-  logError(error: string) { (window.console.error || window.console.log)(error); }
-
-  log(error: string) { window.console.log(error); }
-
-  logGroup(error: string) {
-    window.console.group && window.console.group(error);
-    this.logError(error);
+  logError(error: string): void {
+    if (window.console) {
+      if (console.error) {
+        console.error(error);
+      } else {
+        console.log(error);
+      }
+    }
   }
 
-  logGroupEnd() { window.console.groupEnd && window.console.groupEnd(); }
+  log(error: string): void {
+    if (window.console) {
+      window.console.log && window.console.log(error);
+    }
+  }
+
+  logGroup(error: string): void {
+    if (window.console) {
+      window.console.group && window.console.group(error);
+    }
+  }
+
+  logGroupEnd(): void {
+    if (window.console) {
+      window.console.groupEnd && window.console.groupEnd();
+    }
+  }
 
   get attrToPropMap(): any { return _attrToPropMap; }
 
@@ -289,6 +306,7 @@ export class BrowserDomAdapter extends GenericBrowserDomAdapter {
   importIntoDoc(node: Node): any { return document.importNode(this.templateAwareRoot(node), true); }
   adoptNode(node: Node): any { return document.adoptNode(node); }
   getHref(el: Element): string { return (<any>el).href; }
+
   getEventKey(event: any): string {
     let key = event.key;
     if (isBlank(key)) {

@@ -1,3 +1,11 @@
+/**
+ * @license
+ * Copyright Google Inc. All Rights Reserved.
+ *
+ * Use of this source code is governed by an MIT-style license that can be
+ * found in the LICENSE file at https://angular.io/license
+ */
+
 import {ApplicationRef, enableProdMode} from '@angular/core';
 import {platformBrowserDynamic} from '@angular/platform-browser-dynamic';
 
@@ -7,8 +15,8 @@ import {buildTree, emptyTree} from '../util';
 import {AppModule, RootTreeComponent} from './tree';
 
 export function main() {
-  var tree: RootTreeComponent;
-  var appRef: ApplicationRef;
+  let tree: RootTreeComponent;
+  let appRef: ApplicationRef;
 
   function destroyDom() {
     tree.data = emptyTree;

@@ -6,17 +6,13 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {ListWrapper} from '../../facade/collection';
 import * as ml from '../../ml_parser/ast';
-import {HtmlParser} from '../../ml_parser/html_parser';
-import {InterpolationConfig} from '../../ml_parser/interpolation_config';
 import {XmlParser} from '../../ml_parser/xml_parser';
-import {ParseError} from '../../parse_util';
+import {digest} from '../digest';
 import * as i18n from '../i18n_ast';
-import {MessageBundle} from '../message_bundle';
 import {I18nError} from '../parse_util';
 
-import {Serializer, extractPlaceholderToIds, extractPlaceholders} from './serializer';
+import {Serializer} from './serializer';
 import * as xml from './xml_helper';
 
 const _VERSION = '1.2';
@@ -24,6 +20,7 @@ const _XMLNS = 'urn:oasis:names:tc:xliff:document:1.2';
 // TODO(vicb): make this a param (s/_/-/)
 const _SOURCE_LANG = 'en';
 const _PLACEHOLDER_TAG = 'x';
+
 const _SOURCE_TAG = 'source';
 const _TARGET_TAG = 'target';
 const _UNIT_TAG = 'trans-unit';
@@ -31,17 +28,19 @@ const _UNIT_TAG = 'trans-unit';
 // http://docs.oasis-open.org/xliff/v1.2/os/xliff-core.html
 // http://docs.oasis-open.org/xliff/v1.2/xliff-profile-html/xliff-profile-html-1.2.html
 export class Xliff implements Serializer {
-  constructor(private _htmlParser: HtmlParser, private _interpolationConfig: InterpolationConfig) {}
-
-  write(messageMap: {[id: string]: i18n.Message}): string {
+  write(messages: i18n.Message[]): string {
     const visitor = new _WriteVisitor();
-
+    const visited: {[id: string]: boolean} = {};
     const transUnits: xml.Node[] = [];
 
-    Object.keys(messageMap).forEach((id) => {
-      const message = messageMap[id];
+    messages.forEach(message => {
+      const id = this.digest(message);
 
-      let transUnit = new xml.Tag(_UNIT_TAG, {id: id, datatype: 'html'});
+      // deduplicate messages
+      if (visited[id]) return;
+      visited[id] = true;
+
+      const transUnit = new xml.Tag(_UNIT_TAG, {id, datatype: 'html'});
       transUnit.children.push(
           new xml.CR(8), new xml.Tag(_SOURCE_TAG, {}, visitor.serialize(message.nodes)),
           new xml.CR(8), new xml.Tag(_TARGET_TAG));
@@ -76,38 +75,28 @@ export class Xliff implements Serializer {
     ]);
   }
 
-  load(content: string, url: string, messageBundle: MessageBundle): {[id: string]: ml.Node[]} {
-    // Parse the xtb file into xml nodes
-    const result = new XmlParser().parse(content, url);
+  load(content: string, url: string): {[msgId: string]: i18n.Node[]} {
+    // xliff to xml nodes
+    const xliffParser = new XliffParser();
+    const {mlNodesByMsgId, errors} = xliffParser.parse(content, url);
 
-    if (result.errors.length) {
-      throw new Error(`xtb parse errors:\n${result.errors.join('\n')}`);
-    }
-
-    // Replace the placeholders, messages are now string
-    const {messages, errors} = new _LoadVisitor().parse(result.rootNodes, messageBundle);
-
-    if (errors.length) {
-      throw new Error(`xtb parse errors:\n${errors.join('\n')}`);
-    }
-
-    // Convert the string messages to html ast
-    // TODO(vicb): map error message back to the original message in xtb
-    let messageMap: {[id: string]: ml.Node[]} = {};
-    const parseErrors: ParseError[] = [];
-
-    Object.keys(messages).forEach((id) => {
-      const res = this._htmlParser.parse(messages[id], url, true, this._interpolationConfig);
-      parseErrors.push(...res.errors);
-      messageMap[id] = res.rootNodes;
+    // xml nodes to i18n nodes
+    const i18nNodesByMsgId: {[msgId: string]: i18n.Node[]} = {};
+    const converter = new XmlToI18n();
+    Object.keys(mlNodesByMsgId).forEach(msgId => {
+      const {i18nNodes, errors: e} = converter.convert(mlNodesByMsgId[msgId]);
+      errors.push(...e);
+      i18nNodesByMsgId[msgId] = i18nNodes;
     });
 
-    if (parseErrors.length) {
-      throw new Error(`xtb parse errors:\n${parseErrors.join('\n')}`);
+    if (errors.length) {
+      throw new Error(`xliff parse errors:\n${errors.join('\n')}`);
     }
 
-    return messageMap;
+    return i18nNodesByMsgId;
   }
+
+  digest(message: i18n.Message): string { return digest(message); }
 }
 
 class _WriteVisitor implements i18n.Visitor {
@@ -162,80 +151,51 @@ class _WriteVisitor implements i18n.Visitor {
 
   serialize(nodes: i18n.Node[]): xml.Node[] {
     this._isInIcu = false;
-    return ListWrapper.flatten(nodes.map(node => node.visit(this)));
+    return [].concat(...nodes.map(node => node.visit(this)));
   }
 }
 
 // TODO(vicb): add error management (structure)
-// TODO(vicb): factorize (xtb) ?
-class _LoadVisitor implements ml.Visitor {
-  private _messageNodes: [string, ml.Node[]][];
-  private _translatedMessages: {[id: string]: string};
-  private _msgId: string;
-  private _target: ml.Node[];
+// Extract messages as xml nodes from the xliff file
+class XliffParser implements ml.Visitor {
+  private _unitMlNodes: ml.Node[];
   private _errors: I18nError[];
-  private _placeholders: {[name: string]: string};
-  private _placeholderToIds: {[name: string]: string};
+  private _mlNodesByMsgId: {[msgId: string]: ml.Node[]};
 
-  parse(nodes: ml.Node[], messageBundle: MessageBundle):
-      {messages: {[k: string]: string}, errors: I18nError[]} {
-    this._messageNodes = [];
-    this._translatedMessages = {};
-    this._msgId = '';
-    this._target = [];
-    this._errors = [];
+  parse(xliff: string, url: string) {
+    this._unitMlNodes = [];
+    this._mlNodesByMsgId = {};
 
-    // Find all messages
-    ml.visitAll(this, nodes, null);
+    const xml = new XmlParser().parse(xliff, url, false);
 
-    const messageMap = messageBundle.getMessageMap();
-    const placeholders = extractPlaceholders(messageBundle);
-    const placeholderToIds = extractPlaceholderToIds(messageBundle);
+    this._errors = xml.errors;
+    ml.visitAll(this, xml.rootNodes, null);
 
-    this._messageNodes
-        .filter(message => {
-          // Remove any messages that is not present in the source message bundle.
-          return messageMap.hasOwnProperty(message[0]);
-        })
-        .sort((a, b) => {
-          // Because there could be no ICU placeholders inside an ICU message,
-          // we do not need to take into account the `placeholderToMsgIds` of the referenced
-          // messages, those would always be empty
-          // TODO(vicb): overkill - create 2 buckets and [...woDeps, ...wDeps].process()
-          if (Object.keys(messageMap[a[0]].placeholderToMsgIds).length == 0) {
-            return -1;
-          }
-
-          if (Object.keys(messageMap[b[0]].placeholderToMsgIds).length == 0) {
-            return 1;
-          }
-
-          return 0;
-        })
-        .forEach(message => {
-          const id = message[0];
-          this._placeholders = placeholders[id] || {};
-          this._placeholderToIds = placeholderToIds[id] || {};
-          // TODO(vicb): make sure there is no `_TRANSLATIONS_TAG` nor `_TRANSLATION_TAG`
-          this._translatedMessages[id] = ml.visitAll(this, message[1]).join('');
-        });
-
-    return {messages: this._translatedMessages, errors: this._errors};
+    return {
+      mlNodesByMsgId: this._mlNodesByMsgId,
+      errors: this._errors,
+    };
   }
 
   visitElement(element: ml.Element, context: any): any {
     switch (element.name) {
       case _UNIT_TAG:
-        this._target = null;
-        const msgId = element.attrs.find((attr) => attr.name === 'id');
-        if (!msgId) {
+        this._unitMlNodes = null;
+        const idAttr = element.attrs.find((attr) => attr.name === 'id');
+        if (!idAttr) {
           this._addError(element, `<${_UNIT_TAG}> misses the "id" attribute`);
         } else {
-          this._msgId = msgId.value;
-        }
-        ml.visitAll(this, element.children, null);
-        if (this._msgId !== null) {
-          this._messageNodes.push([this._msgId, this._target]);
+          const id = idAttr.value;
+          if (this._mlNodesByMsgId.hasOwnProperty(id)) {
+            this._addError(element, `Duplicated translations for msg ${id}`);
+          } else {
+            ml.visitAll(this, element.children, null);
+            if (this._unitMlNodes) {
+              this._mlNodesByMsgId[id] = this._unitMlNodes;
+            } else {
+              this._addError(element, `Message ${id} misses a translation`);
+            }
+          }
         }
         break;
 
@@ -244,48 +204,65 @@ class _LoadVisitor implements ml.Visitor {
         break;
 
       case _TARGET_TAG:
-        this._target = element.children;
-        break;
-
-      case _PLACEHOLDER_TAG:
-        const idAttr = element.attrs.find((attr) => attr.name === 'id');
-        if (!idAttr) {
-          this._addError(element, `<${_PLACEHOLDER_TAG}> misses the "id" attribute`);
-        } else {
-          const id = idAttr.value;
-          if (this._placeholders.hasOwnProperty(id)) {
-            return this._placeholders[id];
-          }
-          if (this._placeholderToIds.hasOwnProperty(id) &&
-              this._translatedMessages.hasOwnProperty(this._placeholderToIds[id])) {
-            return this._translatedMessages[this._placeholderToIds[id]];
-          }
-          // TODO(vicb): better error message for when
-          // !this._translatedMessages.hasOwnProperty(this._placeholderToIds[id])
-          this._addError(element, `The placeholder "${id}" does not exists in the source message`);
-        }
+        this._unitMlNodes = element.children;
         break;
 
       default:
+        // TODO(vicb): assert file structure, xliff version
+        // For now only recurse on unhandled nodes
         ml.visitAll(this, element.children, null);
     }
   }
 
-  visitAttribute(attribute: ml.Attribute, context: any): any {
-    throw new Error('unreachable code');
+  visitAttribute(attribute: ml.Attribute, context: any): any {}
+
+  visitText(text: ml.Text, context: any): any {}
+
+  visitComment(comment: ml.Comment, context: any): any {}
+
+  visitExpansion(expansion: ml.Expansion, context: any): any {}
+
+  visitExpansionCase(expansionCase: ml.ExpansionCase, context: any): any {}
+
+  private _addError(node: ml.Node, message: string): void {
+    this._errors.push(new I18nError(node.sourceSpan, message));
+  }
+}
+
+// Convert ml nodes (xliff syntax) to i18n nodes
+class XmlToI18n implements ml.Visitor {
+  private _errors: I18nError[];
+
+  convert(nodes: ml.Node[]) {
+    this._errors = [];
+    return {
+      i18nNodes: ml.visitAll(this, nodes),
+      errors: this._errors,
+    };
   }
 
-  visitText(text: ml.Text, context: any): any { return text.value; }
+  visitText(text: ml.Text, context: any) { return new i18n.Text(text.value, text.sourceSpan); }
 
-  visitComment(comment: ml.Comment, context: any): any { return ''; }
+  visitElement(el: ml.Element, context: any): i18n.Placeholder {
+    if (el.name === _PLACEHOLDER_TAG) {
+      const nameAttr = el.attrs.find((attr) => attr.name === 'id');
+      if (nameAttr) {
+        return new i18n.Placeholder('', nameAttr.value, el.sourceSpan);
+      }
 
-  visitExpansion(expansion: ml.Expansion, context: any): any {
-    throw new Error('unreachable code');
+      this._addError(el, `<${_PLACEHOLDER_TAG}> misses the "id" attribute`);
+    } else {
+      this._addError(el, `Unexpected tag`);
+    }
   }
 
-  visitExpansionCase(expansionCase: ml.ExpansionCase, context: any): any {
-    throw new Error('unreachable code');
-  }
+  visitExpansion(icu: ml.Expansion, context: any) {}
+
+  visitExpansionCase(icuCase: ml.ExpansionCase, context: any): any {}
+
+  visitComment(comment: ml.Comment, context: any) {}
+
+  visitAttribute(attribute: ml.Attribute, context: any) {}
 
   private _addError(node: ml.Node, message: string): void {
     this._errors.push(new I18nError(node.sourceSpan, message));

@@ -6,21 +6,28 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
+import {StaticSymbol} from '@angular/compiler/src/aot/static_symbol';
 import {CompileIdentifierMetadata} from '@angular/compiler/src/compile_metadata';
 import {JavaScriptEmitter} from '@angular/compiler/src/output/js_emitter';
 import * as o from '@angular/compiler/src/output/output_ast';
-import {beforeEach, describe, expect, it} from '@angular/core/testing/testing_internal';
+import {ImportResolver} from '@angular/compiler/src/output/path_util';
 
-import {SimpleJsImportGenerator} from './output_emitter_util';
+const someModuleUrl = 'somePackage/somePath';
+const anotherModuleUrl = 'somePackage/someOtherPath';
 
-var someModuleUrl = 'asset:somePackage/lib/somePath';
-var anotherModuleUrl = 'asset:somePackage/lib/someOtherPath';
+const sameModuleIdentifier: CompileIdentifierMetadata = {
+  reference: new StaticSymbol(someModuleUrl, 'someLocalId', [])
+};
+const externalModuleIdentifier: CompileIdentifierMetadata = {
+  reference: new StaticSymbol(anotherModuleUrl, 'someExternalId', [])
+};
 
-var sameModuleIdentifier =
-    new CompileIdentifierMetadata({name: 'someLocalId', moduleUrl: someModuleUrl});
-
-var externalModuleIdentifier =
-    new CompileIdentifierMetadata({name: 'someExternalId', moduleUrl: anotherModuleUrl});
+class SimpleJsImportGenerator implements ImportResolver {
+  fileNameToModuleName(importedUrlStr: string, moduleUrlStr: string): string {
+    return importedUrlStr;
+  }
+  getImportAs(symbol: StaticSymbol): StaticSymbol { return null; }
+}
 
 export function main() {
   // Note supported features of our OutputAstin JavaScript / ES5:
@@ -28,11 +35,13 @@ export function main() {
   // - declaring fields
 
   describe('JavaScriptEmitter', () => {
-    var emitter: JavaScriptEmitter;
-    var someVar: o.ReadVarExpr;
+    let importResolver: ImportResolver;
+    let emitter: JavaScriptEmitter;
+    let someVar: o.ReadVarExpr;
 
     beforeEach(() => {
-      emitter = new JavaScriptEmitter(new SimpleJsImportGenerator());
+      importResolver = new SimpleJsImportGenerator();
+      emitter = new JavaScriptEmitter(importResolver);
       someVar = o.variable('someVar');
     });
 
@@ -105,6 +114,11 @@ export function main() {
       expect(emitStmt(o.literalMap([['someKey', o.literal(1)]]).toStmt())).toEqual(`{someKey: 1};`);
     });
 
+    it('should support blank literals', () => {
+      expect(emitStmt(o.literal(null).toStmt())).toEqual('null;');
+      expect(emitStmt(o.literal(undefined).toStmt())).toEqual('undefined;');
+    });
+
     it('should support external identifiers', () => {
       expect(emitStmt(o.importExpr(sameModuleIdentifier).toStmt())).toEqual('someLocalId;');
       expect(emitStmt(o.importExpr(externalModuleIdentifier).toStmt())).toEqual([
@@ -114,9 +128,19 @@ export function main() {
       ].join('\n'));
     });
 
+    it('should support `importAs` for external identifiers', () => {
+      spyOn(importResolver, 'getImportAs')
+          .and.returnValue(new StaticSymbol('somePackage/importAsModule', 'importAsName', []));
+      expect(emitStmt(o.importExpr(externalModuleIdentifier).toStmt())).toEqual([
+        `var import0 = re` +
+            `quire('somePackage/importAsModule');`,
+        `import0.importAsName;`
+      ].join('\n'));
+    });
+
     it('should support operators', () => {
-      var lhs = o.variable('lhs');
-      var rhs = o.variable('rhs');
+      const lhs = o.variable('lhs');
+      const rhs = o.variable('rhs');
       expect(emitStmt(o.not(someVar).toStmt())).toEqual('!someVar;');
       expect(
           emitStmt(someVar.conditional(o.variable('trueCase'), o.variable('falseCase')).toStmt()))
@@ -168,8 +192,8 @@ export function main() {
     });
 
     it('should support if stmt', () => {
-      var trueCase = o.variable('trueCase').callFn([]).toStmt();
-      var falseCase = o.variable('falseCase').callFn([]).toStmt();
+      const trueCase = o.variable('trueCase').callFn([]).toStmt();
+      const falseCase = o.variable('falseCase').callFn([]).toStmt();
       expect(emitStmt(new o.IfStmt(o.variable('cond'), [trueCase]))).toEqual([
         'if (cond) { trueCase(); }'
       ].join('\n'));
@@ -179,8 +203,9 @@ export function main() {
     });
 
     it('should support try/catch', () => {
-      var bodyStmt = o.variable('body').callFn([]).toStmt();
-      var catchStmt = o.variable('catchFn').callFn([o.CATCH_ERROR_VAR, o.CATCH_STACK_VAR]).toStmt();
+      const bodyStmt = o.variable('body').callFn([]).toStmt();
+      const catchStmt =
+          o.variable('catchFn').callFn([o.CATCH_ERROR_VAR, o.CATCH_STACK_VAR]).toStmt();
       expect(emitStmt(new o.TryCatchStmt([bodyStmt], [catchStmt]))).toEqual([
         'try {', '  body();', '} catch (error) {', '  var stack = error.stack;',
         '  catchFn(error,stack);', '}'
@@ -191,7 +216,7 @@ export function main() {
        () => { expect(emitStmt(new o.ThrowStmt(someVar))).toEqual('throw someVar;'); });
 
     describe('classes', () => {
-      var callSomeMethod: o.Statement;
+      let callSomeMethod: o.Statement;
 
       beforeEach(() => { callSomeMethod = o.THIS_EXPR.callMethod('someMethod', []).toStmt(); });
 
@@ -212,7 +237,7 @@ export function main() {
       });
 
       it('should support declaring constructors', () => {
-        var superCall = o.SUPER_EXPR.callFn([o.variable('someParam')]).toStmt();
+        const superCall = o.SUPER_EXPR.callFn([o.variable('someParam')]).toStmt();
         expect(emitStmt(
                    new o.ClassStmt('SomeClass', null, [], [], new o.ClassMethod(null, [], []), [])))
             .toEqual(['function SomeClass() {', '}'].join('\n'));

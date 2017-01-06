@@ -1,8 +1,16 @@
-import {ApplicationRef, NgModule, enableProdMode} from '@angular/core';
+/**
+ * @license
+ * Copyright Google Inc. All Rights Reserved.
+ *
+ * Use of this source code is governed by an MIT-style license that can be
+ * found in the LICENSE file at https://angular.io/license
+ */
+
+import {ApplicationRef, enableProdMode} from '@angular/core';
 import {platformBrowser} from '@angular/platform-browser';
 
 import {bindAction, profile} from '../../util';
-import {TreeNode, buildTree, emptyTree} from '../util';
+import {buildTree, emptyTree} from '../util';
 
 import {AppModuleNgFactory} from './app.ngfactory';
 import {TreeRootComponent} from './tree';

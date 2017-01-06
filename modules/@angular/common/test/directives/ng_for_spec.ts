@@ -264,7 +264,7 @@ export function main() {
        }));
 
     it('should use a default template if a custom one is null', async(() => {
-         const testTemplate = `<ul><template ngFor let-item [ngForOf]="items" 
+         const testTemplate = `<ul><template ngFor let-item [ngForOf]="items"
             [ngForTemplate]="contentTpl" let-i="index">{{i}}: {{item}};</template></ul>`;
          TestBed.overrideComponent(TestComponent, {set: {template: testTemplate}});
          const cutTemplate =
@@ -294,6 +294,27 @@ export function main() {
        }));
 
     describe('track by', () => {
+      it('should console.warn if trackBy is not a function', async(() => {
+           // TODO(vicb): expect a warning message when we have a proper log service
+           const template =
+               `<template ngFor let-item [ngForOf]="items" [ngForTrackBy]="value"></template>`;
+           fixture = createTestComponent(template);
+           fixture.componentInstance.value = 0;
+           fixture.detectChanges();
+         }));
+
+      it('should track by identity when trackBy is to `null` or `undefined`', async(() => {
+           // TODO(vicb): expect no warning message when we have a proper log service
+           const template =
+               `<template ngFor let-item [ngForOf]="items" [ngForTrackBy]="value">{{ item }}</template>`;
+           fixture = createTestComponent(template);
+           fixture.componentInstance.items = ['a', 'b', 'c'];
+           fixture.componentInstance.value = null;
+           detectChangesAndExpectText('abc');
+           fixture.componentInstance.value = undefined;
+           detectChangesAndExpectText('abc');
+         }));
+
       it('should set the context to the component instance', async(() => {
            const template =
                `<template ngFor let-item [ngForOf]="items" [ngForTrackBy]="trackByContext.bind(this)"></template>`;
@@ -333,6 +354,7 @@ export function main() {
            getComponent().items = [{'id': 'a', 'color': 'red'}];
            detectChangesAndExpectText('red');
          }));
+
       it('should move items around and keep them updated ', async(() => {
            const template =
                `<div><template ngFor let-item [ngForOf]="items" [ngForTrackBy]="trackById">{{item['color']}}</template></div>`;
@@ -368,6 +390,7 @@ class Foo {
 @Component({selector: 'test-cmp', template: ''})
 class TestComponent {
   @ContentChild(TemplateRef) contentTpl: TemplateRef<Object>;
+  value: any;
   items: any[] = [1, 2];
   trackById(index: number, item: any): string { return item['id']; }
   trackByIndex(index: number, item: any): number { return index; }

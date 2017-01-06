@@ -8,9 +8,8 @@
 
 import {SecurityContext} from '@angular/core';
 
-import {CompileDirectiveMetadata, CompileProviderMetadata, CompileTokenMetadata} from '../compile_metadata';
+import {CompileDirectiveSummary, CompileProviderMetadata, CompileTokenMetadata} from '../compile_metadata';
 import {AST} from '../expression_parser/ast';
-import {isPresent} from '../facade/lang';
 import {ParseSourceSpan} from '../parse_util';
 import {LifecycleHooks} from '../private_import_core';
 
@@ -64,8 +63,8 @@ export class AttrAst implements TemplateAst {
 export class BoundElementPropertyAst implements TemplateAst {
   constructor(
       public name: string, public type: PropertyBindingType,
-      public securityContext: SecurityContext, public value: AST, public unit: string,
-      public sourceSpan: ParseSourceSpan) {}
+      public securityContext: SecurityContext, public needsRuntimeSecurityContext: boolean,
+      public value: AST, public unit: string, public sourceSpan: ParseSourceSpan) {}
   visit(visitor: TemplateAstVisitor, context: any): any {
     return visitor.visitElementProperty(this, context);
   }
@@ -77,19 +76,23 @@ export class BoundElementPropertyAst implements TemplateAst {
  * `(@trigger.phase)="callback($event)"`).
  */
 export class BoundEventAst implements TemplateAst {
+  static calcFullName(name: string, target: string, phase: string): string {
+    if (target) {
+      return `${target}:${name}`;
+    } else if (phase) {
+      return `@${name}.${phase}`;
+    } else {
+      return name;
+    }
+  }
+
   constructor(
       public name: string, public target: string, public phase: string, public handler: AST,
       public sourceSpan: ParseSourceSpan) {}
   visit(visitor: TemplateAstVisitor, context: any): any {
     return visitor.visitEvent(this, context);
   }
-  get fullName() {
-    if (isPresent(this.target)) {
-      return `${this.target}:${this.name}`;
-    } else {
-      return this.name;
-    }
-  }
+  get fullName() { return BoundEventAst.calcFullName(this.name, this.target, this.phase); }
   get isAnimation(): boolean { return !!this.phase; }
 }
 
@@ -124,7 +127,8 @@ export class ElementAst implements TemplateAst {
       public outputs: BoundEventAst[], public references: ReferenceAst[],
       public directives: DirectiveAst[], public providers: ProviderAst[],
       public hasViewContainer: boolean, public children: TemplateAst[],
-      public ngContentIndex: number, public sourceSpan: ParseSourceSpan) {}
+      public ngContentIndex: number, public sourceSpan: ParseSourceSpan,
+      public endSourceSpan: ParseSourceSpan) {}
 
   visit(visitor: TemplateAstVisitor, context: any): any {
     return visitor.visitElement(this, context);
@@ -164,7 +168,7 @@ export class BoundDirectivePropertyAst implements TemplateAst {
  */
 export class DirectiveAst implements TemplateAst {
   constructor(
-      public directive: CompileDirectiveMetadata, public inputs: BoundDirectivePropertyAst[],
+      public directive: CompileDirectiveSummary, public inputs: BoundDirectivePropertyAst[],
       public hostProperties: BoundElementPropertyAst[], public hostEvents: BoundEventAst[],
       public sourceSpan: ParseSourceSpan) {}
   visit(visitor: TemplateAstVisitor, context: any): any {
@@ -241,6 +245,11 @@ export enum PropertyBindingType {
  * A visitor for {@link TemplateAst} trees that will process each node.
  */
 export interface TemplateAstVisitor {
+  // Returning a truthy value from `visit()` will prevent `templateVisitAll()` from the call to
+  // the typed method and result returned will become the result included in `visitAll()`s
+  // result array.
+  visit?(ast: TemplateAst, context: any): any;
+
   visitNgContent(ast: NgContentAst, context: any): any;
   visitEmbeddedTemplate(ast: EmbeddedTemplateAst, context: any): any;
   visitElement(ast: ElementAst, context: any): any;
@@ -260,10 +269,13 @@ export interface TemplateAstVisitor {
  */
 export function templateVisitAll(
     visitor: TemplateAstVisitor, asts: TemplateAst[], context: any = null): any[] {
-  var result: any[] = [];
+  const result: any[] = [];
+  const visit = visitor.visit ?
+      (ast: TemplateAst) => visitor.visit(ast, context) || ast.visit(visitor, context) :
+      (ast: TemplateAst) => ast.visit(visitor, context);
   asts.forEach(ast => {
-    var astResult = ast.visit(visitor, context);
-    if (isPresent(astResult)) {
+    const astResult = visit(ast);
+    if (astResult) {
       result.push(astResult);
     }
   });

@@ -9,9 +9,7 @@
 import {CollectionChangeRecord, Directive, DoCheck, ElementRef, Input, IterableDiffer, IterableDiffers, KeyValueChangeRecord, KeyValueDiffer, KeyValueDiffers, Renderer} from '@angular/core';
 
 import {isListLikeIterable} from '../facade/collection';
-import {isPresent} from '../facade/lang';
-
-
+import {isPresent, stringify} from '../facade/lang';
 
 /**
  * @ngModule CommonModule
@@ -27,15 +25,17 @@ import {isPresent} from '../facade/lang';
  *     <some-element [ngClass]="{'first': true, 'second': true, 'third': false}">...</some-element>
  *
  *     <some-element [ngClass]="stringExp|arrayExp|objExp">...</some-element>
+ *
+ *     <some-element [ngClass]="{'class1 class2 class3' : true}">...</some-element>
  * ```
  *
  * @description
  *
- * The CSS classes are updated as follow depending on the type of the expression evaluation:
- * - `string` - the CSS classes listed in a string (space delimited) are added,
- * - `Array` - the CSS classes (Array elements) are added,
- * - `Object` - keys are CSS class names that get added when the expression given in the value
- *              evaluates to a truthy value, otherwise class are removed.
+ * The CSS classes are updated as follows, depending on the type of the expression evaluation:
+ * - `string` - the CSS classes listed in the string (space delimited) are added,
+ * - `Array` - the CSS classes declared as Array elements are added,
+ * - `Object` - keys are CSS classes that get added when the expression given in the value
+ *              evaluates to a truthy value, otherwise they are removed.
  *
  * @stable
  */
@@ -49,7 +49,6 @@ export class NgClass implements DoCheck {
   constructor(
       private _iterableDiffers: IterableDiffers, private _keyValueDiffers: KeyValueDiffers,
       private _ngEl: ElementRef, private _renderer: Renderer) {}
-
 
   @Input('class')
   set klass(v: string) {
@@ -111,8 +110,14 @@ export class NgClass implements DoCheck {
   }
 
   private _applyIterableChanges(changes: any): void {
-    changes.forEachAddedItem(
-        (record: CollectionChangeRecord) => this._toggleClass(record.item, true));
+    changes.forEachAddedItem((record: CollectionChangeRecord) => {
+      if (typeof record.item === 'string') {
+        this._toggleClass(record.item, true);
+      } else {
+        throw new Error(
+            `NgClass can only toggle CSS classes expressed as strings, got ${stringify(record.item)}`);
+      }
+    });
 
     changes.forEachRemovedItem(
         (record: CollectionChangeRecord) => this._toggleClass(record.item, false));
